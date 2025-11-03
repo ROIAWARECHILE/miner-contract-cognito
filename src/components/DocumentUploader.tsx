@@ -37,6 +37,13 @@ export default function DocumentUploader({
   
   const { data: contracts } = useContracts();
 
+  // Update contractId when preselectedContractId changes
+  React.useEffect(() => {
+    if (preselectedContractId) {
+      setContractId(preselectedContractId);
+    }
+  }, [preselectedContractId]);
+
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
     const list = Array.from(e.target.files).filter(f => {
@@ -116,22 +123,24 @@ export default function DocumentUploader({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      <div className="mb-3 flex items-center gap-3">
-        <label className="text-sm font-medium text-muted-foreground">Contrato</label>
-        <select 
-          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
-          value={contractId} 
-          onChange={e => setContractId(e.target.value)}
-          required
-        >
-          <option value="">Seleccionar contrato...</option>
-          {contracts?.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.code} - {c.title}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!preselectedContractId && (
+        <div className="mb-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-muted-foreground">Contrato</label>
+          <select 
+            className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+            value={contractId} 
+            onChange={e => setContractId(e.target.value)}
+            required
+          >
+            <option value="">Seleccionar contrato...</option>
+            {contracts?.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.code} - {c.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       
       <div className="mb-3 flex items-center gap-3">
         <label className="text-sm font-medium text-muted-foreground">Tipo</label>

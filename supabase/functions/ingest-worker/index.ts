@@ -291,21 +291,59 @@ Include provenance: {filename, page_spans, extracted_fields, confidence_by_field
   if (docType === 'edp') {
     return `${basePrompt}
 
+CRITICAL INSTRUCTIONS FOR CHILEAN NUMBER FORMAT:
+- Chilean PDFs use PERIOD (.) as thousands separator and COMMA (,) as decimal separator
+- Example in PDF: "1.234,56" → Extract as: 1234.56
+- Example in PDF: "209,81" → Extract as: 209.81
+- Example in PDF: "39.179,01" → Extract as: 39179.01
+- ALWAYS remove periods (thousands separators) and convert commas to dots
+- Task numbers may appear as "1.1", "1.2", "2.0" (keep this format)
+- If task numbers appear with dashes like "1-1", normalize to "1.1"
+
+DOCUMENT STRUCTURE:
+- Header: Contains contract code, EDP number, period (e.g., "Ago-2025")
+- Main Table: Lists all tasks/activities with columns for:
+  * Item/Task Number (e.g., 1.1, 1.2, 2.0, 3.0, 8.0, 9.0)
+  * Description/Activity Name
+  * Budget (Presupuesto) in UF
+  * Current Period Amount (Monto Período) in UF
+  * Progress % (Avance %)
+- Footer: Contains accumulated totals, UF rate, CLP amounts
+
 For EDP (Estado de Pago) documents, extract ALL these fields:
 1. edp_number (integer) - EDP sequence number
-2. period_label (string, e.g., "Ago-25") - reporting period
-3. period_start, period_end (ISO dates YYYY-MM-DD)
-4. amount_uf (numeric) - total amount this EDP in UF
+2. period_label (string, e.g., "Ago-25", "Aug-2025") - reporting period
+3. period_start, period_end (ISO dates YYYY-MM-DD) - convert from period_label
+4. amount_uf (numeric) - total amount this EDP in UF (current period)
 5. uf_rate (numeric) - UF to CLP conversion rate
 6. amount_clp (numeric) - total amount in CLP
 7. status (string) - "approved" if signed, else "submitted"
 8. accumulated_prev_uf (numeric) - accumulated before this EDP
-9. accumulated_total_uf (numeric) - accumulated after this EDP
-10. tasks_executed (array) - each task must have:
-    - task_number (string, e.g., "1.1", "2.0", "9.0")
-    - name (string) - task description
+9. accumulated_total_uf (numeric) - accumulated after this EDP (must = prev + current)
+10. contract_budget_uf (numeric) - total contract budget (usually 4501 UF)
+11. contract_progress_pct (numeric) - overall contract progress %
+12. tasks_executed (array) - each task must have:
+    - task_number (string, e.g., "1.1", "1.2", "2.0", "3.0", "8.0", "9.0")
+    - name (string) - task description in Spanish
     - spent_uf (numeric) - UF spent in this task THIS period only
     - budget_uf (numeric, optional) - task budget if mentioned
+    - progress_pct (numeric, optional) - accumulated progress % for this task
+
+EXAMPLE TASKS FROM REAL EDPs:
+- Task 1.1: "Recopilación y análisis de información"
+- Task 1.2: "Visita a terreno"
+- Task 2.0: "Actualización del estudio hidrológico"
+- Task 3.0: "Revisión experta"
+- Task 8.0: "Reuniones y presentaciones"
+- Task 9.0: "Costos de administración" or "Reuniones"
+
+VALIDATION RULES:
+1. accumulated_total_uf MUST equal accumulated_prev_uf + amount_uf (within 0.01 tolerance)
+2. SUM(tasks_executed[].spent_uf) SHOULD equal amount_uf (within 1% tolerance)
+3. All task_numbers must use dot notation (1.1, not 1-1)
+4. All UF amounts MUST be positive numbers with exactly 2 decimal places
+5. contract_progress_pct = ROUND((accumulated_total_uf / contract_budget_uf) * 100)
+6. Convert Chilean number format: "1.234,56" → 1234.56
 
 UPSERTS REQUIRED:
 1. payment_states table:
@@ -321,7 +359,11 @@ UPSERTS REQUIRED:
        "uf_rate": <numeric>,
        "amount_clp": <numeric>,
        "status": "approved",
-       "data": {"accumulated_prev_uf": <numeric>, "accumulated_total_uf": <numeric>}
+       "data": {
+         "accumulated_prev_uf": <numeric>, 
+         "accumulated_total_uf": <numeric>,
+         "contract_progress_pct": <numeric>
+       }
      }
    }
 
@@ -334,7 +376,7 @@ UPSERTS REQUIRED:
        "task_name": "<string>",
        "spent_uf": <numeric>, // INCREMENT by this amount
        "budget_uf": <numeric if found>,
-       "progress_percentage": <computed from spent/budget>
+       "progress_percentage": <computed from spent/budget if available>
      }
    }
 
@@ -342,7 +384,9 @@ ANALYTICS:
 {
   "spent_total_uf": <accumulated_total_uf>,
   "progress_pct": <round(accumulated_total_uf / 4501 * 100)>
-}`;
+}
+
+RETURN ONLY VALID JSON, NO MARKDOWN, NO EXPLANATIONS.`;
   }
 
   if (docType === 'contract') {

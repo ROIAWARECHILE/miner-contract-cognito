@@ -5,6 +5,7 @@ verify_jwt = false
 
 [functions.ingest-worker]
 verify_jwt = false
+schedule = "* * * * *"
 
 [functions.verify-contract]
 verify_jwt = false

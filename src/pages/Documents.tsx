@@ -1,7 +1,14 @@
+import { useState } from 'react';
 import DocumentUploader from '@/components/DocumentUploader';
+import IngestJobMonitor from '@/components/IngestJobMonitor';
 import { Header } from '@/components/Header';
+import { useContracts } from '@/hooks/useContract';
+import { Card } from '@/components/ui/card';
 
 export default function DocumentsPage() {
+  const { data: contracts } = useContracts();
+  const [selectedContractId, setSelectedContractId] = useState<string>('');
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -16,6 +23,37 @@ export default function DocumentsPage() {
           </p>
         </div>
 
+        {/* Global Contract Selector */}
+        <Card className="p-6 mb-6">
+          <label className="block mb-2 text-sm font-medium text-foreground">
+            Seleccionar Contrato
+          </label>
+          <select 
+            className="w-full max-w-2xl rounded-lg border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+            value={selectedContractId} 
+            onChange={e => setSelectedContractId(e.target.value)}
+          >
+            <option value="">Seleccionar contrato...</option>
+            {contracts?.map(c => (
+              <option key={c.id} value={c.id}>
+                {c.code} - {c.title}
+              </option>
+            ))}
+          </select>
+          {selectedContractId && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              ✓ Todos los documentos se asociarán a este contrato
+            </p>
+          )}
+        </Card>
+
+        {/* Job Monitor */}
+        {selectedContractId && (
+          <div className="mb-6">
+            <IngestJobMonitor contractId={selectedContractId} />
+          </div>
+        )}
+
         <div className="grid gap-6 md:grid-cols-3">
           {/* Section 1: Contract & Technical Bases */}
           <section className="space-y-4">
@@ -24,10 +62,10 @@ export default function DocumentsPage() {
                 Contrato & Bases Técnicas
               </h2>
               <div className="space-y-3">
-                <DocumentUploader defaultType="contract" />
-                <DocumentUploader defaultType="quality" />
-                <DocumentUploader defaultType="sso" />
-                <DocumentUploader defaultType="tech" />
+                <DocumentUploader defaultType="contract" preselectedContractId={selectedContractId} />
+                <DocumentUploader defaultType="quality" preselectedContractId={selectedContractId} />
+                <DocumentUploader defaultType="sso" preselectedContractId={selectedContractId} />
+                <DocumentUploader defaultType="tech" preselectedContractId={selectedContractId} />
               </div>
             </div>
           </section>
@@ -38,7 +76,7 @@ export default function DocumentsPage() {
               <h2 className="font-semibold text-lg text-foreground mb-4">
                 Estados de Pago (EDP)
               </h2>
-              <DocumentUploader defaultType="edp" />
+              <DocumentUploader defaultType="edp" preselectedContractId={selectedContractId} />
             </div>
           </section>
 
@@ -49,8 +87,8 @@ export default function DocumentsPage() {
                 Administrativo
               </h2>
               <div className="space-y-3">
-                <DocumentUploader defaultType="sdi" />
-                <DocumentUploader defaultType="addendum" />
+                <DocumentUploader defaultType="sdi" preselectedContractId={selectedContractId} />
+                <DocumentUploader defaultType="addendum" preselectedContractId={selectedContractId} />
               </div>
             </div>
           </section>

@@ -47,6 +47,10 @@ serve(async (req) => {
       );
     }
 
+    // Auto-detect document_type from storage_path if not provided
+    // Path format: "dominga/edp/filename.pdf" -> type = "edp"
+    const detectedDocType = document_type || storage_path.split('/')[1] || 'contract';
+
     // Create job (on conflict do nothing due to unique constraint)
     const { data: job, error: jobError } = await supabase
       .from('ingest_jobs')
@@ -56,7 +60,7 @@ serve(async (req) => {
         file_hash,
         etag,
         contract_id,
-        document_type: document_type || 'contract',
+        document_type: detectedDocType,
         status: 'queued',
         attempts: 0
       })

@@ -311,24 +311,66 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           
           <Card className="border-transparent shadow-md">
             <CardHeader>
-              <CardTitle>EDPs Procesados</CardTitle>
+              <CardTitle>Historial de EDPs</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
+              <div className="overflow-x-auto">
                 {payments.length > 0 ? (
-                  payments.map((edp: any) => (
-                    <div key={edp.edp_number} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex-1">
-                        <p className="font-medium">EDP N°{edp.edp_number}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {edp.period_label} • {edp.amount_uf} UF
-                        </p>
-                      </div>
-                      <Badge variant={edp.status === 'approved' ? 'default' : 'secondary'}>
-                        {edp.status}
-                      </Badge>
-                    </div>
-                  ))
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="p-3 text-sm font-medium text-muted-foreground">N° EDP</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground">Período</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground text-right">Monto UF</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground text-right">Valor UF</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground text-right">Monto CLP</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground text-center">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payments.map((edp: any) => (
+                        <tr key={edp.edp_number} className="border-b border-border/50 hover:bg-accent/30 transition-colors">
+                          <td className="p-3">
+                            <span className="font-semibold">EDP #{edp.edp_number}</span>
+                          </td>
+                          <td className="p-3 text-sm text-muted-foreground">
+                            {edp.period_label}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            {typeof edp.amount_uf === 'number' ? edp.amount_uf.toFixed(2) : edp.amount_uf} UF
+                          </td>
+                          <td className="p-3 text-right text-sm text-muted-foreground">
+                            ${typeof edp.uf_rate === 'number' ? edp.uf_rate.toLocaleString('es-CL') : edp.uf_rate}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            ${typeof edp.amount_clp === 'number' ? edp.amount_clp.toLocaleString('es-CL') : edp.amount_clp}
+                          </td>
+                          <td className="p-3 text-center">
+                            <Badge variant={edp.status === 'approved' ? 'default' : 'secondary'}>
+                              {edp.status === 'approved' ? 'Aprobado' : edp.status}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                      {payments.length > 1 && (
+                        <tr className="bg-muted/30 font-semibold">
+                          <td colSpan={2} className="p-3">Total Acumulado</td>
+                          <td className="p-3 text-right font-mono">
+                            {payments.reduce((sum: number, edp: any) => 
+                              sum + (typeof edp.amount_uf === 'number' ? edp.amount_uf : 0), 0
+                            ).toFixed(2)} UF
+                          </td>
+                          <td className="p-3"></td>
+                          <td className="p-3 text-right font-mono">
+                            ${payments.reduce((sum: number, edp: any) => 
+                              sum + (typeof edp.amount_clp === 'number' ? edp.amount_clp : 0), 0
+                            ).toLocaleString('es-CL')}
+                          </td>
+                          <td className="p-3"></td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-4">
                     No hay EDPs procesados
