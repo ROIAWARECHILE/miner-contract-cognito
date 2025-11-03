@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Upload, X, FileText, Loader2, Plus } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -48,6 +49,7 @@ export const DocumentUploadDialog = ({
 
   const { toast } = useToast();
   const { data: contracts, refetch: refetchContracts } = useContracts();
+  const { user } = useAuth();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -85,9 +87,16 @@ export const DocumentUploadDialog = ({
       return null;
     }
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión para crear contratos",
+        variant: "destructive"
+      });
+      return null;
+    }
 
+    try {
       const { data, error } = await supabase
         .from('contracts')
         .insert({
@@ -95,7 +104,7 @@ export const DocumentUploadDialog = ({
           title: newContract.title,
           type: newContract.type as any,
           status: 'draft' as any,
-          created_by: user?.id,
+          created_by: user.id,
         })
         .select()
         .single();
@@ -124,6 +133,15 @@ export const DocumentUploadDialog = ({
       toast({
         title: "Archivo requerido",
         description: "Selecciona un archivo para cargar",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión para cargar documentos",
         variant: "destructive"
       });
       return;

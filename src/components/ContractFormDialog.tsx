@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +32,7 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
   const { toast } = useToast();
   const { data: companies } = useCompanies();
   const { data: assets } = useAssets();
+  const { user } = useAuth();
   
   const [formData, setFormData] = useState({
     code: "",
@@ -52,11 +54,19 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "Debes iniciar sesión para crear contratos",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-
       const { error } = await supabase
         .from('contracts')
         .insert({
@@ -73,7 +83,7 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
           country: formData.country || null,
           mineral: formData.mineral || null,
           summary_ai: formData.summary_ai || null,
-          created_by: user?.id,
+          created_by: user.id,
         });
 
       if (error) throw error;
