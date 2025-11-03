@@ -181,8 +181,35 @@ export default function DocumentUploader({
           toast.error(processData?.error || 'Error desconocido al procesar');
         }
       } catch (e: any) {
-        setLog(l => [`❌ Error con ${f.name}: ${e.message ?? e}`, ...l]);
-        toast.error(`Error al subir ${f.name}`);
+        const errMsg = e?.message || String(e);
+        console.error("[DocumentUploader] Processing error:", e);
+        
+        // Mensajes específicos según el error
+        if (errMsg.includes("Contract not found") || errMsg.includes("No contract found")) {
+          const contractCode = contracts.find((c) => c.id === contractId)?.code || "unknown";
+          toast.error(`❌ Error: El contrato "${contractCode}" no existe en el sistema`, {
+            duration: 6000,
+          });
+          setLog((l) => [`❌ ERROR: Contrato "${contractCode}" no encontrado en la base de datos`, ...l]);
+        } else if (errMsg.includes("LLAMAPARSE_API_KEY") || errMsg.includes("LlamaParse")) {
+          toast.error("❌ Error: LlamaParse API key no configurado. Contacta al administrador.", {
+            duration: 6000,
+          });
+          setLog((l) => [`❌ ERROR: LlamaParse API key no está configurado en Supabase Secrets`, ...l]);
+        } else if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("OpenAI")) {
+          toast.error("❌ Error: OpenAI API key no configurado. Contacta al administrador.", {
+            duration: 6000,
+          });
+          setLog((l) => [`❌ ERROR: OpenAI API key no está configurado en Supabase Secrets`, ...l]);
+        } else if (errMsg.includes("Failed to process")) {
+          toast.error(`❌ Error al procesar documento: ${errMsg}`, {
+            duration: 6000,
+          });
+          setLog((l) => [`❌ ERROR procesando documento: ${errMsg}`, ...l]);
+        } else {
+          setLog(l => [`❌ Error con ${f.name}: ${errMsg}`, ...l]);
+          toast.error(`Error al subir ${f.name}: ${errMsg}`);
+        }
       } finally {
         done++; 
         setProgress(Math.round((done/total)*100));

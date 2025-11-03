@@ -35,6 +35,14 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   // Enable real-time updates
   useRealtimeContract(CONTRACT_CODE);
   
+  // Sistema de colores para porcentajes de progreso
+  const getProgressBadgeVariant = (percentage: number): "destructive" | "warning" | "default" | "secondary" => {
+    if (percentage >= 100) return "destructive"; // Rojo - sobre-presupuesto
+    if (percentage >= 80) return "warning"; // Amarillo - advertencia
+    if (percentage > 0) return "default"; // Azul - progreso normal
+    return "secondary"; // Gris - sin progreso
+  };
+  
   const handleDownload = async (path: string) => {
     try {
       await downloadDocument(path);
@@ -286,7 +294,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                         <span className="text-muted-foreground">
                           {task.spent_uf.toFixed(2)} / {task.budget_uf} UF
                         </span>
-                        <Badge variant={task.progress_percentage > 0 ? "default" : "secondary"}>
+                        <Badge variant={getProgressBadgeVariant(task.progress_percentage)}>
                           {task.progress_percentage}%
                         </Badge>
                       </div>

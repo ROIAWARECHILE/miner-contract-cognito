@@ -6,185 +6,550 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// EDP extraction prompt with canonical task mapping
-const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor. Your job is to transform the JSON parsed by LlamaParse for a mining payment statement (EDP) into a STRICT, canonical JSON that matches the contract's task catalog.
+// EDP extraction prompt with FULL validation and task detection
+const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor specialized in Chilean mining payment statements.
+Your job is to extract structured data from "Estados de Pago" (EDPs) with EXTREME precision.
 
-IMPORTANT PRINCIPLES
-- Never invent task names or numbers.
-- Always normalize each row to the contract's canonical task_number and name using the provided catalog.
-- The "period" field is MANDATORY - extract with high precision.
-- Only return VALID JSON (no prose). All numeric values are decimals with dot separator.
+CRITICAL REQUIREMENTS:
+1. Extract ALL tasks from the payment table, even if some have 0 spent
+2. NEVER invent data - if not found, use null
+3. ALL numeric values use dot as decimal separator (e.g., 209.81)
+4. Dates in ISO format (YYYY-MM-DD)
+5. Currency is UF (Unidad de Fomento) unless specified
+6. Return ONLY valid JSON (no markdown, no prose)
 
-INPUTS PROVIDED
-1) parsed_json: JSON from LlamaParse (contains text + tables).
-2) contract_code: string.
-3) tasks_map: an object mapping task_number → canonical_name for this contract.
-
-WHAT YOU MUST EXTRACT
-From parsed_json (table usually titled "TAREA" with a "Total" UF column, plus header/footer boxes), return exactly:
+WHAT YOU MUST EXTRACT:
 
 {
-  "contract_code": "<contract_code>",
   "edp_number": <int>,
-  "period": "<Mon-YY>",  // CRITICAL: e.g., "Jul-25", "Ago-25", "Sep-25"
-  "uf_rate": <number>,
-  "amount_uf": <number>,
-  "amount_clp": <integer>,
-  "accumulated_prev_uf": <number>,
-  "accumulated_total_uf": <number>,
-  "contract_progress_pct": <number>,
+  "period": "<string>",  // MANDATORY - e.g., "Jul-25", "Ago-25", "Sep-25"
+  "period_start": "YYYY-MM-DD",
+  "period_end": "YYYY-MM-DD",
+  "amount_uf": <number>,  // Total payment amount this EDP
+  "uf_rate": <number>,    // UF exchange rate if present
+  "amount_clp": <number>, // CLP amount if present
+  "status": "approved|submitted|rejected|draft",
+  "approval_date": "YYYY-MM-DD",  // If approved
   "tasks_executed": [
-    { "task_number":"<canonical>", "name":"<canonical>", "budget_uf": <number|null>, "spent_uf": <number> }
-  ]
-}
-
-PERIOD EXTRACTION RULES (CRITICAL):
-- Search in the top 30% of the document for: "Período:", "Periodo:", "MES:", "PERIODO FACTURADO:" or similar
-- The period is usually near the title or metadata section
-- Format as "MMM-YY" (e.g., "Jul-25", "Ago-25", "Sep-25")
-- If found as date range (e.g., "01/07/2025 - 31/07/2025"), convert to "Jul-25"
-- If found as month name (e.g., "Julio 2025" or "JULIO/2025"), convert to "Jul-25"
-- If found as "08/2025" or "08-2025", convert to "Ago-25"
-- Spanish months: Enero→Ene, Febrero→Feb, Marzo→Mar, Abril→Abr, Mayo→May, Junio→Jun, Julio→Jul, Agosto→Ago, Septiembre→Sep, Octubre→Oct, Noviembre→Nov, Diciembre→Dic
-- If you cannot find it with certainty, set "meta.review_required": true and "meta.warnings": ["Period not found"]
-
-CANONICAL TASK NORMALIZATION RULES
-
-SPECIAL HANDLING FOR TASK 1.2 (Visita a terreno):
-- Task 1.2 is "Visita a terreno" (Site visit)
-- It often appears WITHOUT an explicit number in the document table
-- Look for these patterns:
-  * A row with text "Visita a terreno", "Visita técnica", "Visita de campo"
-  * A row between task 1 and task 2 without a clear number
-  * Keywords: "visita", "terreno", "campo"
-- If you find such a row, ALWAYS map it to task_number "1.2"
-- NEVER skip task 1.2 even if it lacks a number in the first column
-
-GENERAL TASK MAPPING:
-1) The "tasks_map" is the source of truth for names. The output "name" MUST come from tasks_map[task_number].
-2) Detect a row's raw number from the first cell if it starts with a number pattern.
-3) If the document uses ".0" decimals (like "1.0", "2.0"), remove the .0 EXCEPT for 1.2.
-   - "1" or "1.0" → task_number "1" (Recopilación y análisis)
-   - "1.2" → task_number "1.2" (Visita a terreno) ← ALWAYS KEEP
-   - "2" or "2.0" → task_number "2" (Actualización estudio hidrológico)
-   - "3" or "3.0" → task_number "3"
-   - Continue for 4-9
-4) If a row has no explicit number, try semantic matching against tasks_map (≥0.90 confidence only).
-5) Omit rows where the "Total" UF equals zero.
-6) budget_uf: include if known from document; otherwise use null.
-7) Merge duplicate rows that map to the same task_number by summing spent_uf.
-
-VALIDATION & CONSISTENCY
-- Perform two checks:
-  a) |sum(tasks_executed[].spent_uf) - amount_uf| ≤ 0.5
-  b) |(accumulated_prev_uf + amount_uf) - accumulated_total_uf| ≤ 0.5
-- If either check fails, set "meta.review_required": true.
-
-OUTPUT FORMAT
-Return ONLY this JSON object (no markdown, no commentary):
-
-{
-  "contract_code": "...",
-  "edp_number": 2,
-  "period": "Ago-25",  // MANDATORY
-  "uf_rate": 39383.07,
-  "amount_uf": 418.44,
-  "amount_clp": 16479349,
-  "accumulated_prev_uf": 209.8,
-  "accumulated_total_uf": 628.2,
-  "contract_progress_pct": 14,
-  "tasks_executed": [...],
-  "meta": {
-    "checks": {
-      "sum_tasks_equals_amount_uf": true|false,
-      "accum_prev_plus_current_equals_total": true|false
-    },
-    "review_required": true|false,
-    "warnings": [],  // list of extraction warnings
-    "confidence": {
-      "period": <0-1>,
-      "tasks": <0-1>
+    {
+      "task_number": "<string>",  // e.g., "1", "1.2", "2", "3", "9"
+      "name": "<string>",
+      "budget_uf": <number>,      // Original task budget from contract
+      "spent_uf": <number>,       // Amount spent THIS EDP
+      "progress_pct": <int>       // Cumulative progress %
     }
+  ],
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>,
+    "warnings": ["<string>"],
+    "missing_amount_uf": <number>  // If tasks sum doesn't match total
   }
 }
 
-ROBUSTNESS NOTES
-- Normalize thousand/decimal separators (e.g., "16.479.349" → 16479349; "418,44" → 418.44).
-- If multiple "TAREA" tables exist, choose the one with a "Total" UF column and most non-zero rows.
-- Ignore administrative footers, headers, watermarks, and logos.
+PERIOD EXTRACTION RULES (MANDATORY):
+- Look for: "Período:", "Periodo:", "MES:", "Month:", date range in header
+- Common formats: "Julio 2025", "Jul-25", "07/2025", "Período: 21/07/2025 - 31/07/2025"
+- Normalize to "MMM-YY" format (Jul-25, Ago-25, Sep-25, Oct-25, Nov-25, Dic-25)
+- Spanish months: Enero→Ene, Febrero→Feb, Marzo→Mar, Abril→Abr, Mayo→May, Junio→Jun, Julio→Jul, Agosto→Ago, Septiembre→Sep, Octubre→Oct, Noviembre→Nov, Diciembre→Dic
+- If period not found, set "meta.review_required": true and "meta.warnings": ["CRITICAL: Period not found"]
 
-Return only the final JSON object.`;
+EXTRACTION RULES FOR TASKS (CRITICAL):
+- Tasks appear in a table with columns typically: "TAREA" or "Nº", "Descripción", "Presupuesto UF", "Avance %", "UF Ejecutadas"
+- **EXTRACT ALL TASKS FROM THE TABLE** even if spent_uf is 0 or blank
+- Common task structure for this contract:
+  * Task 1: "Recopilación y análisis de información"
+  * Task 1.2: "Visita a terreno" (often without number in first column)
+  * Task 2: "Actualización del estudio hidrológico"
+  * Task 3: "Revisión experta del actual Modelo Hidrogeológico"
+  * Task 4: "Actualización y calibración del modelo hidrogeológico"
+  * Task 5: "Definición de condiciones desfavorables"
+  * Task 6: "Simulaciones predictivas"
+  * Task 7: "Asesoría técnica permanente"
+  * Task 8: "Reuniones y presentaciones"
+  * Task 9: "Costos de Administración y Operación"
+
+SPECIAL RULE for Task 1.2 (Visita a terreno):
+- May appear WITHOUT task number in first column
+- Keywords: "visita", "terreno", "campo", "site visit"
+- ALWAYS map to task_number "1.2"
+- If you see "Visita a terreno" but no number, use "1.2"
+
+SPECIAL RULE for Task 3 (Revisión experta):
+- Keywords: "revisión experta", "modelo hidrogeológico", "peer review"
+- ALWAYS map to task_number "3"
+
+NORMALIZATION RULES for task_number:
+- Preserve "1.2" exactly (never "1", never "12")
+- Remove ".0" suffix (e.g., "3.0" → "3", "9.0" → "9")
+- If blank but name matches known task, infer number
+
+CRITICAL VALIDATION:
+1. Sum all tasks[].spent_uf
+2. Compare with amount_uf
+3. If difference > 5%, set:
+   - "meta.review_required": true
+   - "meta.warnings": ["Tasks sum (XXX UF) differs from total (YYY UF) by ZZZ UF - some tasks may be missing"]
+   - "meta.missing_amount_uf": <difference>
+4. If Task 1 or Task 2 present but Task 1.2 missing, warn: "Task 1.2 (Visita a terreno) not detected"
+
+Return ONLY the JSON object (no markdown, no prose).`;
 
 // Document type specific prompts
 const EXTRACTION_PROMPTS: Record<string, string> = {
   edp: EDP_EXTRACTION_PROMPT,
   
-  contract: `You are an expert at extracting contract metadata from legal documents.
+  contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
 
-Extract the following information from the document:
-- Contract code/number
-- Parties involved (client and contractor)
-- Start date and end date
-- Total budget (in UF if available)
-- Key deliverables and milestones
-- Payment terms
+CRITICAL REQUIREMENTS:
+1. NEVER invent data - if not found, use null
+2. ALL numeric values use dot as decimal separator (e.g., 4501.00)
+3. Dates in ISO format (YYYY-MM-DD)
+4. Currency is UF (Unidad de Fomento) unless specified
+5. Return ONLY valid JSON (no markdown, no prose)
 
-Return the data as structured JSON with clear field names. Return ONLY valid JSON, no markdown.`,
-  
-  sdi: `You are an expert at extracting information requests (SDI - Solicitud de Información).
+WHAT YOU MUST EXTRACT:
 
-Extract:
-- SDI number
-- Topic/subject
-- Requested by (person/entity)
-- Request date
-- Due date (usually 5 business days from request)
-- Current status
+{
+  "contract_code": "<string>",  // CRITICAL: Usually starts with "AIPD", "CSI", etc.
+  "title": "<string>",
+  "client": "<string>",  // Entity hiring the contractor
+  "contractor": "<string>",  // Entity providing the service
+  "start_date": "YYYY-MM-DD",  // Contract start date
+  "end_date": "YYYY-MM-DD",  // Contract end date (if defined)
+  "budget_uf": <number>,  // Total contract budget in UF
+  "currency": "UF",
+  "payment_terms": {
+    "type": "monthly|milestone|upon_completion",
+    "conditions": "<string>"
+  },
+  "tasks": [
+    {
+      "task_number": "<string>",  // e.g., "1", "1.2", "2", "3"
+      "name": "<string>",  // Full canonical task name
+      "budget_uf": <number>,  // Individual task budget
+      "deliverables": ["<string>"],  // Key deliverables for this task
+      "timeline": "<string>"  // If specified
+    }
+  ],
+  "key_deliverables": ["<string>"],  // High-level deliverables
+  "milestones": [
+    {
+      "name": "<string>",
+      "date": "YYYY-MM-DD",
+      "description": "<string>"
+    }
+  ],
+  "contacts": [
+    {
+      "name": "<string>",
+      "role": "client_representative|contractor_pm|technical_lead",
+      "email": "<string>",
+      "phone": "<string>"
+    }
+  ],
+  "special_clauses": [
+    {
+      "type": "warranty|penalty|bonus|termination|liability",
+      "description": "<string>",
+      "value": "<string>"  // If monetary value involved
+    }
+  ],
+  "meta": {
+    "document_pages": <int>,
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>,
+    "warnings": ["<string>"]
+  }
+}
 
-Return ONLY valid JSON, no markdown.`,
-  
-  quality: `You are an expert at extracting quality plan requirements.
+EXTRACTION RULES FOR TASKS:
+- Tasks usually appear in a table with columns: "TAREA" or "Nº", "Descripción", "Presupuesto UF"
+- Common task structure for mining projects:
+  * Task 1: "Recopilación y análisis de información"
+  * Task 1.2: "Visita a terreno"
+  * Task 2-9: Various technical and administrative tasks
+- ALWAYS preserve the original task_number (e.g., "1.2" not "1" or "12")
+- Sum individual task budgets and verify against total budget_uf
+- If mismatch >5%, set "meta.review_required": true
 
-Extract:
-- Quality standards and compliance requirements
-- Inspection points and deliverables
-- Responsible parties
-- Review schedules
+EXTRACTION RULES FOR DATES:
+- Look for: "Fecha de Inicio:", "Plazo:", "Vigencia:", "Fecha de Término:"
+- Common formats: "DD/MM/YYYY", "DD-MM-YYYY", "DD de MMMM de YYYY"
+- Convert Spanish months: Enero→01, Febrero→02, ..., Diciembre→12
+- If end date is expressed as duration (e.g., "6 meses"), calculate from start date
 
-Return ONLY valid JSON, no markdown.`,
-  
-  sso: `You are an expert at extracting safety and health plan requirements.
+EXTRACTION RULES FOR BUDGET:
+- Look for: "Presupuesto Total:", "Monto del Contrato:", "Valor Total:"
+- Usually expressed in UF (Unidad de Fomento)
+- May have both UF and CLP amounts - prioritize UF
+- Format: remove thousand separators, use dot for decimals (e.g., "4.501,00 UF" → 4501.00)
 
-Extract:
-- Safety protocols and requirements
-- Risk assessments
-- Responsible parties
-- Training requirements
-- Emergency procedures
+EXTRACTION RULES FOR PARTIES:
+- Client: Usually "Mandante:", "Cliente:", or appears after "entre" clause
+- Contractor: Usually "Contratista:", "Consultor:", or second party in "entre" clause
+- Extract full legal names (e.g., "Andes Iron SpA", "Itasca Chile SpA")
 
-Return ONLY valid JSON, no markdown.`,
-  
-  tech: `You are an expert at extracting technical study information.
+VALIDATION CHECKS:
+1. contract_code must be present (CRITICAL)
+2. client and contractor must be present
+3. budget_uf must be >0
+4. If tasks array is not empty, sum(tasks[].budget_uf) should ≈ budget_uf (tolerance ±5%)
+5. start_date must be valid ISO date
+6. If any CRITICAL field is missing or confidence <0.80, set "meta.review_required": true
 
-Extract:
-- Study objectives and scope
-- Deliverables and milestones
-- Technical specifications
-- Timelines
+CONFIDENCE SCORING:
+- 1.0: All critical fields extracted with high certainty
+- 0.8-0.99: Most fields extracted, minor ambiguities
+- 0.6-0.79: Some fields missing or uncertain
+- <0.6: Major extraction issues, manual review required
 
-Return ONLY valid JSON, no markdown.`,
-  
-  addendum: `You are an expert at extracting contract modifications and change orders.
+Return ONLY the JSON object (no markdown, no prose).`,
 
-Extract:
-- Addendum number
-- Effective date
-- Changes to scope, budget, or timeline
-- Justification for changes
-- New contract terms
+  sdi: `You are ContractOS' SDI (Solicitud de Información) extractor for mining projects.
 
-Return ONLY valid JSON, no markdown.`
+CRITICAL: Extract ALL required fields with precision. Return ONLY valid JSON.
+
+{
+  "sdi_number": "<string>",  // e.g., "SDI-001", "SDI-2025-042"
+  "contract_code": "<string>",  // Associated contract
+  "topic": "<string>",  // Subject/topic of the information request
+  "description": "<string>",  // Detailed description
+  "requested_by": {
+    "name": "<string>",
+    "entity": "client|contractor|third_party",
+    "email": "<string>"
+  },
+  "requested_date": "YYYY-MM-DD",
+  "due_date": "YYYY-MM-DD",  // Usually 5 business days from requested_date
+  "priority": "low|medium|high|critical",
+  "status": "open|in_progress|answered|closed",
+  "response_date": "YYYY-MM-DD",  // If already answered
+  "response_summary": "<string>",  // If already answered
+  "attachments": ["<string>"],  // List of referenced documents
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>,
+    "warnings": ["<string>"]
+  }
+}
+
+EXTRACTION RULES:
+- SDI number is CRITICAL - usually in header or title
+- Due date calculation: requested_date + 5 business days (Mon-Fri)
+- Status: if response is present → "answered", else → "open"
+- Priority: extract from document or infer from keywords (urgente→critical, importante→high)
+- If sdi_number or requested_date missing, set "meta.review_required": true
+
+Return ONLY the JSON object.`,
+
+  quality: `You are ContractOS' quality plan extractor for mining projects.
+
+Extract comprehensive quality assurance and control requirements. Return ONLY valid JSON.
+
+{
+  "document_code": "<string>",  // Plan code/number
+  "contract_code": "<string>",  // Associated contract
+  "title": "<string>",
+  "version": "<string>",  // e.g., "R0", "Rev. 1"
+  "effective_date": "YYYY-MM-DD",
+  "quality_standards": [
+    {
+      "standard_name": "<string>",  // e.g., "ISO 9001", "NCh 2909"
+      "scope": "<string>",
+      "compliance_level": "mandatory|recommended"
+    }
+  ],
+  "inspection_points": [
+    {
+      "point_id": "<string>",
+      "description": "<string>",
+      "frequency": "<string>",  // e.g., "daily", "per milestone"
+      "responsible": "<string>",
+      "acceptance_criteria": "<string>"
+    }
+  ],
+  "deliverables": [
+    {
+      "name": "<string>",
+      "type": "report|test|certificate|checklist",
+      "frequency": "<string>",
+      "due_date": "YYYY-MM-DD"
+    }
+  ],
+  "responsible_parties": [
+    {
+      "name": "<string>",
+      "role": "quality_manager|inspector|reviewer",
+      "responsibilities": ["<string>"]
+    }
+  ],
+  "review_schedule": {
+    "frequency": "<string>",  // e.g., "monthly", "quarterly"
+    "next_review_date": "YYYY-MM-DD"
+  },
+  "non_conformance_procedures": "<string>",
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>
+  }
+}
+
+Return ONLY the JSON object.`,
+
+  sso: `You are ContractOS' SSO (Safety & Health) plan extractor for mining projects.
+
+Extract comprehensive safety protocols and requirements. Return ONLY valid JSON.
+
+{
+  "document_code": "<string>",
+  "contract_code": "<string>",
+  "title": "<string>",
+  "version": "<string>",
+  "effective_date": "YYYY-MM-DD",
+  "safety_protocols": [
+    {
+      "protocol_id": "<string>",
+      "name": "<string>",
+      "description": "<string>",
+      "compliance_requirement": "mandatory|recommended",
+      "applicable_tasks": ["<string>"]
+    }
+  ],
+  "risk_assessments": [
+    {
+      "risk_id": "<string>",
+      "description": "<string>",
+      "probability": "low|medium|high",
+      "impact": "low|medium|high|critical",
+      "mitigation_measures": ["<string>"],
+      "responsible": "<string>"
+    }
+  ],
+  "ppe_requirements": [
+    {
+      "equipment": "<string>",
+      "applicable_tasks": ["<string>"],
+      "certification_required": <boolean>
+    }
+  ],
+  "training_requirements": [
+    {
+      "training_name": "<string>",
+      "target_audience": "<string>",
+      "duration": "<string>",
+      "frequency": "<string>",
+      "certification": <boolean>
+    }
+  ],
+  "emergency_procedures": [
+    {
+      "scenario": "<string>",  // e.g., "fire", "chemical spill", "injury"
+      "response_steps": ["<string>"],
+      "emergency_contacts": ["<string>"]
+    }
+  ],
+  "responsible_parties": [
+    {
+      "name": "<string>",
+      "role": "safety_manager|safety_officer|first_responder",
+      "responsibilities": ["<string>"]
+    }
+  ],
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>
+  }
+}
+
+Return ONLY the JSON object.`,
+
+  tech: `You are ContractOS' technical study extractor for mining/engineering projects.
+
+Extract comprehensive technical specifications and requirements. Return ONLY valid JSON.
+
+{
+  "document_code": "<string>",
+  "contract_code": "<string>",
+  "title": "<string>",
+  "version": "<string>",
+  "study_type": "hydrology|hydrogeology|geotechnical|environmental|other",
+  "objectives": ["<string>"],
+  "scope": {
+    "description": "<string>",
+    "geographic_area": "<string>",
+    "exclusions": ["<string>"]
+  },
+  "methodology": {
+    "approach": "<string>",
+    "techniques": ["<string>"],
+    "software_tools": ["<string>"]
+  },
+  "deliverables": [
+    {
+      "name": "<string>",
+      "type": "report|model|map|dataset",
+      "format": "<string>",  // e.g., "PDF", "GIS", "Excel"
+      "due_date": "YYYY-MM-DD"
+    }
+  ],
+  "milestones": [
+    {
+      "name": "<string>",
+      "description": "<string>",
+      "planned_date": "YYYY-MM-DD",
+      "dependencies": ["<string>"]
+    }
+  ],
+  "technical_specifications": [
+    {
+      "parameter": "<string>",
+      "value": "<string>",
+      "unit": "<string>",
+      "tolerance": "<string>"
+    }
+  ],
+  "data_sources": [
+    {
+      "source_name": "<string>",
+      "type": "field_data|literature|previous_studies|database",
+      "reliability": "high|medium|low"
+    }
+  ],
+  "timeline": {
+    "start_date": "YYYY-MM-DD",
+    "end_date": "YYYY-MM-DD",
+    "phases": [
+      {
+        "phase_name": "<string>",
+        "duration": "<string>",
+        "activities": ["<string>"]
+      }
+    ]
+  },
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>
+  }
+}
+
+Return ONLY the JSON object.`,
+
+  addendum: `You are ContractOS' addendum/change order extractor for mining contracts.
+
+Extract ALL modifications to the original contract. Return ONLY valid JSON.
+
+{
+  "addendum_number": "<string>",  // e.g., "Addendum 1", "Modificación N°2"
+  "contract_code": "<string>",  // Original contract code
+  "effective_date": "YYYY-MM-DD",
+  "approval_date": "YYYY-MM-DD",
+  "change_type": "scope|budget|timeline|terms|other",
+  "justification": "<string>",  // Reason for the change
+  "changes": [
+    {
+      "section": "<string>",  // Which part of the contract is modified
+      "original_value": "<string>",
+      "new_value": "<string>",
+      "impact": "critical|significant|minor"
+    }
+  ],
+  "budget_impact": {
+    "original_budget_uf": <number>,
+    "added_budget_uf": <number>,
+    "new_total_budget_uf": <number>,
+    "justification": "<string>"
+  },
+  "timeline_impact": {
+    "original_end_date": "YYYY-MM-DD",
+    "extension_days": <int>,
+    "new_end_date": "YYYY-MM-DD",
+    "justification": "<string>"
+  },
+  "scope_changes": [
+    {
+      "type": "addition|removal|modification",
+      "task_number": "<string>",
+      "description": "<string>",
+      "budget_uf": <number>
+    }
+  ],
+  "new_terms": [
+    {
+      "clause_type": "<string>",
+      "description": "<string>"
+    }
+  ],
+  "approval_signatures": [
+    {
+      "name": "<string>",
+      "role": "client|contractor",
+      "signature_date": "YYYY-MM-DD"
+    }
+  ],
+  "meta": {
+    "extraction_confidence": <0.0-1.0>,
+    "review_required": <boolean>
+  }
+}
+
+CRITICAL VALIDATION:
+- If budget_impact exists, new_total_budget_uf MUST be calculated correctly
+- If timeline_impact exists, new_end_date MUST be calculated correctly
+- All changes MUST have clear justification
+- If any critical field is missing, set "meta.review_required": true
+
+Return ONLY the JSON object.`
 };
+
+// Helper: normalize task numbers intelligently
+function normalizeTaskNumber(taskNumber: string, taskName: string): string {
+  // Caso especial: Tarea 1.2 (preserve exactamente)
+  if (taskNumber === '1.2') return '1.2';
+  
+  // Si no hay task_number pero el nombre indica Tarea 1.2
+  if (!taskNumber || taskNumber === '') {
+    if (taskName.toLowerCase().includes('visita') &&
+        (taskName.toLowerCase().includes('terreno') || taskName.toLowerCase().includes('campo'))) {
+      return '1.2';
+    }
+  }
+  
+  // Si taskName contiene keywords de Tarea 1.2, forzar a 1.2
+  if (taskName.toLowerCase().includes('visita') && taskName.toLowerCase().includes('terreno')) {
+    return '1.2';
+  }
+  
+  // Eliminar .0 excepto para 1.2
+  if (taskNumber.endsWith('.0')) {
+    return taskNumber.replace('.0', '');
+  }
+  
+  // Mapeos por nombre para tareas comunes
+  const nameToNumber: Record<string, string> = {
+    'recopilación y análisis': '1',
+    'visita a terreno': '1.2',
+    'actualización del estudio hidrológico': '2',
+    'revisión experta': '3',
+    'modelo hidrogeológico': '3',
+    'actualización y calibración': '4',
+    'condiciones desfavorables': '5',
+    'simulaciones predictivas': '6',
+    'asesoría técnica': '7',
+    'reuniones y presentaciones': '8',
+    'costos administración': '9',
+    'administración y operación': '9'
+  };
+  
+  const nameLower = taskName.toLowerCase();
+  for (const [key, value] of Object.entries(nameToNumber)) {
+    if (nameLower.includes(key)) {
+      return value;
+    }
+  }
+  
+  return taskNumber;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -198,231 +563,199 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Parse body once at the start for use in error handler
-  let requestBody: any;
   try {
-    requestBody = await req.json();
-  } catch (parseError) {
-    console.error("[process-document] Failed to parse request body:", parseError);
-    return new Response(JSON.stringify({
-      ok: false,
-      error: "Invalid request body"
-    }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" }
-    });
-  }
+    // Parse request body
+    const requestBody = await req.json();
+    console.log("[process-document] Request body:", JSON.stringify(requestBody, null, 2));
 
-  const { contract_code, storage_path, document_type, metadata = {}, edp_number } = requestBody;
+    const { contract_id, contract_code, storage_path, document_type } = requestBody;
 
-  try {
-    console.log(`[process-document] Processing ${document_type}: ${storage_path}`);
-
-    // Get or create contract
-    let contract;
-    
-    if (document_type === "contract" && !contract_code) {
-      // For contract documents without a code, we'll extract it and create the contract later
-      console.log(`[process-document] Contract document without code, will extract and create`);
-      contract = null;
-    } else {
-      // Get existing contract
-      const { data: existingContract, error: contractError } = await supabase
-        .from("contracts")
-        .select("id")
-        .eq("code", contract_code)
-        .single();
-
-      if (contractError || !existingContract) {
-        throw new Error(`Contract not found: ${contract_code}`);
-      }
-      
-      contract = existingContract;
+    if (!storage_path) {
+      throw new Error("storage_path is required");
     }
 
-    // Create processing job (contract_id may be null for new contracts)
+    // Step 1: Create a processing job
     const { data: job, error: jobError } = await supabase
       .from("document_processing_jobs")
       .insert({
-        contract_id: contract?.id || null,
         storage_path,
-        document_type,
         status: "processing",
-        progress: { step: "started", percent: 0 }
+        contract_id: contract_id || null,
+        document_type: document_type || "unknown"
       })
       .select()
       .single();
 
-    if (jobError) {
-      console.error("[process-document] Job creation error:", jobError);
-      throw new Error("Failed to create processing job");
+    if (jobError || !job) {
+      console.error("[process-document] Failed to create job:", jobError);
+      throw new Error(`Failed to create processing job: ${jobError?.message}`);
     }
 
-    console.log(`[process-document] Job created: ${job.id}`);
+    console.log(`[process-document] Created job: ${job.id} for ${storage_path}`);
 
-    // Step 1: Generate presigned URL (3600 seconds = 1 hour for LlamaParse processing)
-    await supabase
-      .from("document_processing_jobs")
-      .update({ progress: { step: "generating_url", percent: 10 } })
-      .eq("id", job.id);
+    // Step 2: Get contract if contract_id provided
+    let contract = null;
+    if (contract_id) {
+      const { data: contractData, error: contractError } = await supabase
+        .from("contracts")
+        .select("*")
+        .eq("id", contract_id)
+        .single();
 
-    const { data: urlData, error: urlError } = await supabase.storage
+      if (contractError) {
+        console.error(`[process-document] Contract not found:`, contractError);
+        throw new Error(`No contract found with id ${contract_id}`);
+      }
+
+      contract = contractData;
+      console.log(`[process-document] Using contract: ${contract.code}`);
+    } else if (contract_code) {
+      const { data: contractData, error: contractError } = await supabase
+        .from("contracts")
+        .select("*")
+        .eq("code", contract_code)
+        .single();
+
+      if (contractError) {
+        console.warn(`[process-document] Contract not found by code: ${contract_code}`);
+      } else {
+        contract = contractData;
+        console.log(`[process-document] Found contract by code: ${contract.code}`);
+      }
+    }
+
+    // Step 3: Download from Supabase Storage
+    const signedUrlResponse = await supabase.storage
       .from("contracts")
       .createSignedUrl(storage_path, 3600);
 
-    if (urlError || !urlData) {
-      console.error(`[process-document] Signed URL error:`, urlError);
-      throw new Error(`Failed to generate signed URL: ${urlError?.message}`);
+    if (signedUrlResponse.error || !signedUrlResponse.data?.signedUrl) {
+      throw new Error(`Failed to generate signed URL: ${signedUrlResponse.error?.message}`);
     }
 
-    console.log(`[process-document] Signed URL generated:`, urlData.signedUrl.substring(0, 100) + "...");
+    const fileUrl = signedUrlResponse.data.signedUrl;
+    console.log(`[process-document] Generated signed URL`);
 
-    // Step 2: Download file from Supabase Storage and prepare for LlamaParse
+    const fileResponse = await fetch(fileUrl);
+    if (!fileResponse.ok) {
+      throw new Error(`Failed to download file: ${fileResponse.statusText}`);
+    }
+
+    const fileBlob = await fileResponse.blob();
+    console.log(`[process-document] Downloaded file, size: ${fileBlob.size} bytes`);
+
+    // Step 4: Parse with LlamaParse
     if (!llamaApiKey) {
-      throw new Error("LLAMAPARSE_API_KEY not configured");
+      console.warn("[process-document] LlamaParse API key not found, using fallback");
+      await supabase
+        .from("document_processing_jobs")
+        .update({ 
+          status: "failed", 
+          error_message: "LlamaParse API key not configured",
+          updated_at: new Date().toISOString() 
+        })
+        .eq("id", job.id);
+      
+      throw new Error("LLAMAPARSE_API_KEY not configured in environment");
     }
 
-    await supabase
-      .from("document_processing_jobs")
-      .update({ progress: { step: "downloading_file", percent: 15 } })
-      .eq("id", job.id);
-
-    // Download the file from Supabase Storage
-    console.log(`[process-document] Downloading file from storage: ${storage_path}`);
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from("contracts")
-      .download(storage_path);
-
-    if (downloadError || !fileData) {
-      console.error(`[process-document] Download error:`, downloadError);
-      throw new Error(`Failed to download file: ${downloadError?.message}`);
+    if (!openaiApiKey) {
+      console.warn("[process-document] OpenAI API key not found");
+      await supabase
+        .from("document_processing_jobs")
+        .update({ 
+          status: "failed", 
+          error_message: "OpenAI API key not configured",
+          updated_at: new Date().toISOString() 
+        })
+        .eq("id", job.id);
+      
+      throw new Error("OPENAI_API_KEY not configured in environment");
     }
 
-    console.log(`[process-document] File downloaded, size: ${fileData.size} bytes`);
-
-    await supabase
-      .from("document_processing_jobs")
-      .update({ progress: { step: "llamaparse_submit", percent: 20 } })
-      .eq("id", job.id);
-
-    // Prepare multipart/form-data
     const formData = new FormData();
-    formData.append("file", fileData, storage_path.split('/').pop() || "document.pdf");
-    formData.append("parsing_instruction", "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.");
-    formData.append("result_type", "json");
-    formData.append("fast_mode", "false");
-    formData.append("do_not_cache", "false");
-    formData.append("continuous_mode", "true");
-    formData.append("invalidate_cache", "false");
-    formData.append("skip_diagonal_text", "false");
-    formData.append("page_separator", "\n\n---PAGE_BREAK---\n\n");
-
-    console.log(`[process-document] Uploading to LlamaParse...`);
-
-    const llamaResponse = await fetch("https://api.cloud.llamaindex.ai/api/parsing/upload", {
+    formData.append("file", fileBlob, storage_path.split("/").pop() || "document.pdf");
+    
+    const uploadResponse = await fetch("https://api.cloud.llamaindex.ai/api/parsing/upload", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${llamaApiKey}`,
-        "Accept": "application/json",
       },
       body: formData
     });
 
-    if (!llamaResponse.ok) {
-      const errorText = await llamaResponse.text();
-      console.error(`[process-document] LlamaParse API error (${llamaResponse.status}):`, errorText);
-      throw new Error(`LlamaParse API error: ${llamaResponse.status} ${errorText}`);
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      throw new Error(`LlamaParse upload failed: ${uploadResponse.status} - ${errorText}`);
     }
 
-    const llamaData = await llamaResponse.json();
-    const jobId = llamaData.id;
+    const uploadData = await uploadResponse.json();
+    const jobId = uploadData.id;
+    console.log(`[process-document] LlamaParse job created: ${jobId}`);
 
-    console.log(`[process-document] LlamaParse job submitted: ${jobId}`);
-
-    await supabase
-      .from("document_processing_jobs")
-      .update({ 
-        llama_job_id: jobId,
-        progress: { step: "llamaparse_polling", percent: 30 }
-      })
-      .eq("id", job.id);
-
-    // Step 3: Poll LlamaParse until complete
-    let parsed;
+    // Poll for completion
+    let result;
     let attempts = 0;
-    const maxAttempts = 60; // 2 minutes max
+    const maxAttempts = 60;
 
     while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      attempts++;
-
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
       const statusResponse = await fetch(`https://api.cloud.llamaindex.ai/api/parsing/job/${jobId}`, {
-        headers: { "Authorization": `Bearer ${llamaApiKey}` }
+        headers: {
+          "Authorization": `Bearer ${llamaApiKey}`
+        }
       });
 
       if (!statusResponse.ok) {
-        console.error(`[process-document] LlamaParse status check failed: ${statusResponse.status}`);
-        continue;
+        throw new Error(`Failed to check status: ${statusResponse.statusText}`);
       }
 
-      const statusData = await statusResponse.json();
-      console.log(`[process-document] LlamaParse status (attempt ${attempts}):`, statusData.status);
+      result = await statusResponse.json();
+      console.log(`[process-document] LlamaParse status: ${result.status}`);
 
-      const progressPercent = 30 + Math.min(50, (attempts / maxAttempts) * 50);
-      await supabase
-        .from("document_processing_jobs")
-        .update({ progress: { step: "llamaparse_polling", percent: Math.round(progressPercent), attempts } })
-        .eq("id", job.id);
-
-      if (statusData.status === "SUCCESS") {
-        // Fetch result
-        const resultResponse = await fetch(`https://api.cloud.llamaindex.ai/api/parsing/job/${jobId}/result/json`, {
-          headers: { "Authorization": `Bearer ${llamaApiKey}` }
-        });
-
-        if (!resultResponse.ok) {
-          throw new Error(`Failed to fetch LlamaParse result: ${resultResponse.status}`);
-        }
-
-        parsed = await resultResponse.json();
-        console.log(`[process-document] LlamaParse completed successfully`);
+      if (result.status === "SUCCESS") {
         break;
-      } else if (statusData.status === "ERROR" || statusData.status === "FAILED") {
-        throw new Error(`LlamaParse job failed: ${statusData.error || "Unknown error"}`);
+      } else if (result.status === "ERROR") {
+        throw new Error(`LlamaParse failed: ${JSON.stringify(result)}`);
       }
+
+      attempts++;
     }
 
-    if (!parsed) {
-      throw new Error("LlamaParse polling timeout after 2 minutes");
+    if (attempts >= maxAttempts) {
+      throw new Error("LlamaParse timeout");
     }
 
-    // Save raw parse
-    await supabase.from("edp_raw_parsed").insert({
-      contract_code,
-      edp_number: edp_number || null,
-      storage_path,
-      llama_job_id: jobId,
-      parsed_json: parsed
+    // Get parsed result
+    const resultResponse = await fetch(`https://api.cloud.llamaindex.ai/api/parsing/job/${jobId}/result/json`, {
+      headers: {
+        "Authorization": `Bearer ${llamaApiKey}`
+      }
     });
 
-    console.log(`[process-document] Raw parse saved to edp_raw_parsed`);
-
-    // Step 4: Extract with OpenAI
-    if (!openaiApiKey) {
-      throw new Error("OPENAI_API_KEY not configured");
+    if (!resultResponse.ok) {
+      throw new Error(`Failed to get result: ${resultResponse.statusText}`);
     }
 
-    await supabase
-      .from("document_processing_jobs")
-      .update({ progress: { step: "openai_extraction", percent: 85 } })
-      .eq("id", job.id);
+    const parsedJson = await resultResponse.json();
+    console.log(`[process-document] LlamaParse completed, pages: ${parsedJson.pages?.length || 0}`);
 
-    let systemPrompt = EXTRACTION_PROMPTS[document_type] || EXTRACTION_PROMPTS.contract;
-    const parsedText = JSON.stringify(parsed).slice(0, 100000); // Limit to 100k chars
+    // Save raw parsed JSON
+    await supabase.from("parsed_documents").insert({
+      contract_id: contract?.id || null,
+      storage_path,
+      parsed_json: parsedJson,
+      parser: "llamaparse"
+    });
+
+    // Step 4.5: Extract with OpenAI
+    const parsedText = JSON.stringify(parsedJson);
+    const systemPrompt = EXTRACTION_PROMPTS[document_type] || EXTRACTION_PROMPTS.contract;
     
-    let userPrompt = `Document content:\n\n${parsedText}`;
+    let userPrompt = `Extract structured data from this document:\n\n${parsedText}`;
 
-    // For EDP documents, fetch and include the contract's task catalog
+    // For EDPs, add tasks_map context
     if (document_type === "edp" && contract) {
       const { data: tasks, error: tasksError } = await supabase
         .from("contract_tasks")
@@ -432,21 +765,17 @@ serve(async (req) => {
 
       if (!tasksError && tasks && tasks.length > 0) {
         const tasksMap: Record<string, string> = {};
-        tasks.forEach(t => {
+        tasks.forEach((t) => {
           tasksMap[t.task_number] = t.task_name;
         });
-        
-        userPrompt = `Contract Code: ${contract_code}
 
-Tasks Map (canonical catalog):
-${JSON.stringify(tasksMap, null, 2)}
-
-Document content:
-${parsedText}`;
+        userPrompt = `Contract code: ${contract.code}\n\nTasks Map (canonical catalog):\n${JSON.stringify(tasksMap, null, 2)}\n\nDocument content:\n${parsedText}`;
       } else {
         console.log("[process-document] No tasks found for contract, proceeding without tasks_map");
       }
     }
+
+    console.log(`[process-document] Sending to OpenAI for extraction (${document_type})...`);
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -478,33 +807,101 @@ ${parsedText}`;
 
     const structured = JSON.parse(content);
 
-    console.log(`[process-document] OpenAI extraction completed`);
-
-    // Validate extraction quality for EDP documents
+    // Enhanced validation for EDPs
     if (document_type === "edp") {
+      const warnings = structured.meta?.warnings || [];
+      
+      // Validar periodo (CRÍTICO)
+      if (!structured.period) {
+        warnings.push("CRITICAL: Period not extracted");
+        structured.meta = structured.meta || {};
+        structured.meta.review_required = true;
+      }
+      
+      // Validar suma de tareas vs total del EDP
       if (structured.tasks_executed && structured.tasks_executed.length > 0) {
+        const tasksSum = structured.tasks_executed.reduce(
+          (sum: number, t: any) => sum + (parseFloat(t.spent_uf) || 0), 
+          0
+        );
+        const totalUf = parseFloat(structured.amount_uf) || 0;
+        const diff = Math.abs(tasksSum - totalUf);
+        
+        if (diff > totalUf * 0.05) {  // >5% diferencia
+          warnings.push(
+            `WARNING: Tasks sum (${tasksSum.toFixed(2)} UF) differs from total (${totalUf.toFixed(2)} UF) by ${diff.toFixed(2)} UF. ` +
+            `Some tasks may be missing from extraction.`
+          );
+          structured.meta = structured.meta || {};
+          structured.meta.review_required = true;
+          structured.meta.missing_amount_uf = diff;
+        }
+        
+        // Validar que Tarea 1.2 existe si hay Tarea 1 o 2
         const hasTask1 = structured.tasks_executed.some((t: any) => t.task_number === '1');
         const hasTask12 = structured.tasks_executed.some((t: any) => t.task_number === '1.2');
         const hasTask2 = structured.tasks_executed.some((t: any) => t.task_number === '2');
         
-        // If there's task 1 and task 2, but no 1.2, log warning
         if ((hasTask1 || hasTask2) && !hasTask12) {
-          console.warn(`[process-document] ⚠️ Task 1.2 (Visita a terreno) not found in EDP #${structured.edp_number}`);
-          structured.meta = structured.meta || {};
-          structured.meta.warnings = structured.meta.warnings || [];
-          structured.meta.warnings.push("Task 1.2 (Visita a terreno) not detected - verify manually");
+          warnings.push("WARNING: Task 1.2 (Visita a terreno) not detected - verify manually");
         }
       }
-
-      // Validate that period is present
-      if (!structured.period || structured.period === '' || structured.period === 'null') {
-        console.warn(`[process-document] ⚠️ Period not extracted from EDP #${structured.edp_number}`);
+      
+      if (warnings.length > 0) {
         structured.meta = structured.meta || {};
-        structured.meta.review_required = true;
-        structured.meta.warnings = structured.meta.warnings || [];
-        structured.meta.warnings.push("Period field is missing or empty");
+        structured.meta.warnings = warnings;
+        console.warn(`[process-document] EDP #${structured.edp_number} validation warnings:`, warnings);
       }
     }
+    
+    // Enhanced validation for CONTRACTS
+    if (document_type === "contract") {
+      const warnings = structured.meta?.warnings || [];
+      
+      if (!structured.contract_code) {
+        warnings.push("CRITICAL: Contract code not extracted");
+        structured.meta = structured.meta || {};
+        structured.meta.review_required = true;
+      }
+      
+      if (!structured.client || !structured.contractor) {
+        warnings.push("CRITICAL: Parties (client/contractor) not identified");
+        structured.meta = structured.meta || {};
+        structured.meta.review_required = true;
+      }
+      
+      if (!structured.budget_uf || structured.budget_uf <= 0) {
+        warnings.push("CRITICAL: Budget not extracted or invalid");
+        structured.meta = structured.meta || {};
+        structured.meta.review_required = true;
+      }
+      
+      if (structured.tasks && structured.tasks.length > 0) {
+        const tasksSum = structured.tasks.reduce((sum: number, t: any) => sum + (parseFloat(t.budget_uf) || 0), 0);
+        const budgetDiff = Math.abs(tasksSum - structured.budget_uf);
+        if (budgetDiff > structured.budget_uf * 0.05) {  // >5% difference
+          warnings.push(`WARNING: Tasks sum (${tasksSum} UF) differs from total budget (${structured.budget_uf} UF) by ${budgetDiff.toFixed(2)} UF`);
+          structured.meta = structured.meta || {};
+          structured.meta.review_required = true;
+        }
+      }
+      
+      if (warnings.length > 0) {
+        structured.meta = structured.meta || {};
+        structured.meta.warnings = warnings;
+        console.warn(`[process-document] Contract extraction validation warnings:`, warnings);
+      }
+    }
+    
+    // Log extraction completion
+    console.log(`[process-document] OpenAI extraction complete:`, {
+      document_type,
+      contract_code: structured.contract_code || structured.contract_id || contract_code || 'N/A',
+      edp_number: structured.edp_number || 'N/A',
+      fields_extracted: Object.keys(structured).length,
+      warnings: structured.meta?.warnings?.length || 0,
+      review_required: structured.meta?.review_required || false
+    });
 
     // Step 4.5: For contract documents, get or create the contract
     if (document_type === "contract" && !contract) {
@@ -566,11 +963,30 @@ ${parsedText}`;
     if (document_type === "edp") {
       await supabase.from("edp_extracted").insert({
         contract_code: contract_code || structured.contract_code,
-        edp_number: structured.edp_number || edp_number || null,
+        edp_number: structured.edp_number || null,
         structured_json: structured
       });
 
       console.log(`[process-document] Structured data saved to edp_extracted`);
+    }
+
+    console.log(`[process-document] Saving ${document_type} to database for contract ${contract_code || contract?.code || 'N/A'}...`);
+
+    // Save extracted data to contract_documents
+    const { error: docError } = await supabase
+      .from("contract_documents")
+      .insert({
+        contract_id: contract?.id || null,
+        document_type,
+        filename: storage_path.split("/").pop() || "unknown",
+        storage_path,
+        extracted_json: structured,
+        status: "processed"
+      });
+
+    if (docError) {
+      console.error(`[process-document] Failed to save document:`, docError);
+      throw new Error(`Failed to save document: ${docError.message}`);
     }
 
     // Step 5: Upsert into business tables (document_type specific)
@@ -579,185 +995,85 @@ ${parsedText}`;
       await supabase.from("payment_states").upsert({
         contract_id: contract.id,
         edp_number: structured.edp_number,
-        period_label: structured.period || null,  // Extract period from structured data
+        period_label: structured.period || null,
+        period_start: structured.period_start || null,
+        period_end: structured.period_end || null,
         amount_uf: structured.amount_uf,
-        amount_clp: structured.amount_clp,
         uf_rate: structured.uf_rate,
-        status: "approved",
+        amount_clp: structured.amount_clp,
+        status: structured.status || "submitted",
+        approval_date: structured.approval_date || null,
         data: structured
       }, { onConflict: "contract_id,edp_number" });
 
-      console.log(`[process-document] Payment state upserted with period: ${structured.period || 'N/A'}`);
-
-      // Función auxiliar para normalizar task_numbers (fortalecida)
-      const normalizeTaskNumber = (taskNumber: string, taskName: string): string => {
-        // Special case: Detect "Visita a terreno" even without a number
-        if (!taskNumber || taskNumber === '' || taskNumber === 'undefined' || taskNumber === 'null') {
-          const nameLower = taskName.toLowerCase();
-          if ((nameLower.includes('visita') && (nameLower.includes('terreno') || nameLower.includes('campo'))) ||
-              nameLower.includes('visita técnica') || nameLower.includes('site visit')) {
-            console.log(`[normalizeTaskNumber] Detected task 1.2 by name: "${taskName}"`);
-            return '1.2';
+      // Upsert contract_tasks with normalized task_number
+      if (structured.tasks_executed && Array.isArray(structured.tasks_executed)) {
+        for (const task of structured.tasks_executed) {
+          const normalizedNumber = normalizeTaskNumber(task.task_number || '', task.name || '');
+          
+          if (normalizedNumber) {
+            await supabase.from("contract_tasks").upsert({
+              contract_id: contract.id,
+              task_number: normalizedNumber,
+              task_name: task.name,
+              budget_uf: task.budget_uf || 0,
+              spent_uf: task.spent_uf || 0,
+              progress_percentage: task.progress_pct || 0
+            }, { onConflict: "contract_id,task_number", ignoreDuplicates: false });
           }
-        }
-        
-        // If already "1.2", keep it
-        if (taskNumber === '1.2') {
-          return '1.2';
-        }
-        
-        // Remove .0 suffix except for 1.2
-        if (taskNumber.endsWith('.0')) {
-          return taskNumber.replace('.0', '');
-        }
-        
-        // Explicit name-to-number mapping as fallback
-        const nameToNumber: Record<string, string> = {
-          'recopilación y análisis': '1',
-          'recopilacion y analisis': '1',
-          'visita a terreno': '1.2',
-          'visita técnica': '1.2',
-          'visita de campo': '1.2',
-          'actualización del estudio hidrológico': '2',
-          'actualizacion del estudio hidrologico': '2',
-          'revisión experta': '3',
-          'revision experta': '3',
-          'actualización y calibración': '4',
-          'actualizacion y calibracion': '4',
-          'análisis de condiciones': '5',
-          'analisis de condiciones': '5',
-          'simulaciones predictivas': '6',
-          'asesoría técnica': '7',
-          'asesoria tecnica': '7',
-          'reuniones y presentaciones': '8',
-          'costos administración': '9',
-          'costos administracion': '9'
-        };
-        
-        const nameLower = taskName.toLowerCase();
-        for (const [key, value] of Object.entries(nameToNumber)) {
-          if (nameLower.includes(key)) {
-            console.log(`[normalizeTaskNumber] Mapped "${taskName}" → ${value}`);
-            return value;
-          }
-        }
-        
-        return taskNumber;
-      };
-
-      // Upsert tasks with accumulated spent_uf
-      for (const task of structured.tasks_executed || []) {
-        const budgetUf = parseFloat(task.budget_uf) || 0;
-        const newSpentUf = parseFloat(task.spent_uf) || 0;
-        
-        // Normalizar task_number de forma inteligente
-        const taskNumber = normalizeTaskNumber(task.task_number, task.name);
-        
-        // 1. Verificar si este EDP ya fue procesado anteriormente
-        const { data: existingEDP } = await supabase
-          .from("payment_states")
-          .select("id, data")
-          .eq("contract_id", contract.id)
-          .eq("edp_number", structured.edp_number)
-          .single();
-        
-        const isReprocessing = !!existingEDP;
-        
-        // 2. Obtener el gasto acumulado actual de esta tarea ESPECÍFICA
-        const { data: existingTask } = await supabase
-          .from("contract_tasks")
-          .select("spent_uf")
-          .eq("contract_id", contract.id)
-          .eq("task_number", taskNumber)
-          .single();
-        
-        // 3. Si es reprocesamiento, restar el gasto anterior de ESTE EDP para ESTA tarea
-        let previousSpentFromThisEDP = 0;
-        if (isReprocessing && existingEDP?.data?.tasks_executed) {
-          const previousTask = existingEDP.data.tasks_executed.find(
-            (t: any) => t.task_number === taskNumber
-          );
-          previousSpentFromThisEDP = parseFloat(previousTask?.spent_uf || 0);
-        }
-        
-        // 4. Calcular el nuevo total acumulado para ESTA tarea
-        const currentSpentUf = existingTask?.spent_uf || 0;
-        const totalSpentUf = currentSpentUf - previousSpentFromThisEDP + newSpentUf;
-        
-        // 5. Calcular el porcentaje con el total acumulado
-        const progressPercentage = budgetUf > 0 
-          ? Math.round((totalSpentUf / budgetUf) * 100) 
-          : 0;
-        
-        // 6. Upsert con el valor acumulado
-        const { error: upsertError } = await supabase.from("contract_tasks").upsert({
-          contract_id: contract.id,
-          task_number: taskNumber,
-          task_name: task.name,
-          spent_uf: totalSpentUf,  // VALOR ACUMULADO
-          budget_uf: budgetUf,
-          progress_percentage: progressPercentage
-        }, { onConflict: "contract_id,task_number" });
-        
-        if (upsertError) {
-          console.error(`Error upserting task ${taskNumber}:`, upsertError);
         }
       }
-
-      console.log(`[process-document] Tasks upserted: ${structured.tasks_executed?.length || 0}`);
 
       // Refresh contract metrics
-      const finalContractCode = contract_code || structured.contract_code;
-      if (finalContractCode) {
-        await supabase.rpc("refresh_contract_metrics", { contract_code: finalContractCode });
-        console.log(`[process-document] Contract metrics refreshed`);
-      }
+      await supabase.rpc("refresh_contract_metrics", { 
+        p_contract_id: contract.id 
+      });
+
+      console.log(`[process-document] Payment state and tasks upserted for contract ${contract.code}`);
     }
 
     // Mark job as completed
     await supabase
       .from("document_processing_jobs")
-      .update({
-        status: "completed",
-        progress: { step: "completed", percent: 100 },
-        result: structured
-      })
+      .update({ status: "completed", updated_at: new Date().toISOString() })
       .eq("id", job.id);
 
-    console.log(`[process-document] Job completed: ${job.id}`);
+    console.log(`[process-document] ✅ Successfully processed ${document_type} (job ${job.id}) for contract ${contract_code || contract?.code || 'N/A'}`);
 
     return new Response(JSON.stringify({
       ok: true,
       job_id: job.id,
-      contract_code,
       document_type,
-      extracted_data: structured
+      structured_data: structured
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
 
   } catch (error) {
-    console.error("[process-document] Error:", error);
-    console.error("[process-document] Error stack:", error instanceof Error ? error.stack : "No stack");
+    console.error("[process-document] Fatal error:", error);
 
-    // Try to update job status using stored request body
+    // Try to update job status
     try {
-      if (requestBody?.contract_code && requestBody?.storage_path) {
-        const { data: contract } = await supabase
-          .from("contracts")
+      const requestBody = await req.json();
+      const { storage_path } = requestBody;
+      
+      if (storage_path) {
+        const { data: jobs } = await supabase
+          .from("document_processing_jobs")
           .select("id")
-          .eq("code", requestBody.contract_code)
-          .single();
+          .eq("storage_path", storage_path)
+          .eq("status", "processing")
+          .limit(1);
 
-        if (contract) {
+        if (jobs && jobs.length > 0) {
           const updateResult = await supabase
             .from("document_processing_jobs")
-            .update({
-              status: "failed",
-              error: error instanceof Error ? error.message : String(error)
+            .update({ 
+              status: "failed", 
+              error_message: error instanceof Error ? error.message : String(error),
+              updated_at: new Date().toISOString() 
             })
-            .eq("contract_id", contract.id)
-            .eq("storage_path", requestBody.storage_path)
+            .eq("storage_path", storage_path)
             .eq("status", "processing");
 
           console.log("[process-document] Job status updated to failed:", updateResult);
