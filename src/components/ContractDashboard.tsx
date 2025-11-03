@@ -96,34 +96,20 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
     }
   };
 
-  // Use real data if available, otherwise fallback to mock
+  // Use real data from database only
   const contracts = contractsData?.length ? contractsData.map(c => ({
     id: c.id,
     code: c.code,
     title: c.title,
-    client: (c.metadata as any)?.client || "Cliente",
-    contractor: (c.metadata as any)?.contractor || "Contratista",
+    client: (c.metadata as any)?.client || "Sin información",
+    contractor: (c.metadata as any)?.contractor || "Sin información",
     status: c.status,
     progress: Math.round(((c.metadata as any)?.overall_progress_pct || 0)),
     budget: (c.metadata as any)?.budget_uf || c.contract_value || 0,
     spent: (c.metadata as any)?.spent_uf || 0,
     slaStatus: "warning",
     nextDeadline: "Rev.0 - 3 días restantes",
-  })) : [
-    {
-      id: "1",
-      code: "AIPD-CSI001-1000-MN-0001",
-      title: "Estudio Hidrológico e Hidrogeológico Proyecto Dominga",
-      client: "Andes Iron SpA",
-      contractor: "Itasca Chile SpA",
-      status: "active",
-      progress: 5,
-      budget: 4501,
-      spent: 209.81,
-      slaStatus: "warning",
-      nextDeadline: "Rev.0 - 3 días restantes",
-    },
-  ];
+  })) : [];
 
   const stats = [
     { 
@@ -227,16 +213,39 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       </div>
 
       {/* Contracts List */}
-      <div className="space-y-4">
-        <h2 className="text-xl font-semibold">Contratos Activos</h2>
-        
-        {contracts.map((contract) => (
+      <h2 className="text-xl font-semibold mb-4">Contratos Activos</h2>
+      
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 mx-auto border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-muted-foreground">Cargando contratos...</p>
+          </div>
+        </div>
+      ) : contracts.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <FileText className="w-16 h-16 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No hay contratos disponibles</h3>
+            <p className="text-muted-foreground text-sm text-center mb-4">
+              Comienza subiendo documentos para crear tu primer contrato
+            </p>
+            <Button 
+              onClick={handleProcessDocuments}
+              disabled={isProcessing}
+            >
+              Procesar Documentos
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        contracts.map((contract) => (
           <Card
             key={contract.id}
-            className="cursor-pointer hover:shadow-xl transition-spring hover:-translate-y-1 border-transparent shadow-md overflow-hidden group"
+            className="cursor-pointer hover:shadow-xl transition-spring hover:-translate-y-1 border-transparent shadow-md overflow-hidden group mb-4"
             onClick={() => onSelectContract(contract.id)}
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-accent/5 opacity-0 group-hover:opacity-100 transition-smooth" />
+            <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-accent/5 opacity-0 group-hover:opacity-100 transition-smooth pointer-events-none" />
             
             <CardHeader className="relative">
               <div className="flex items-start justify-between">
@@ -297,8 +306,8 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
+        ))
+      )}
     </div>
   );
 };
