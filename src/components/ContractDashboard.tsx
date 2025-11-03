@@ -1,14 +1,7 @@
-import { useState } from "react";
-import { FileText, TrendingUp, AlertCircle, CheckCircle2, Plus } from "lucide-react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useContracts, useSLAAlerts } from "@/hooks/useContract";
-import { supabase } from "@/integrations/supabase/client";
-import { useQuery } from "@tanstack/react-query";
-import { ContractFormDialog } from "./ContractFormDialog";
 
 interface ContractDashboardProps {
   onSelectContract: (id: string) => void;
@@ -16,57 +9,48 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
-  const [showContractForm, setShowContractForm] = useState(false);
-  const { data: contracts, isLoading: contractsLoading, error: contractsError } = useContracts();
-  const { data: alerts } = useSLAAlerts();
-
-  // Query for approved EDPs (obligations with type 'reporting' and status 'completed')
-  const { data: approvedEDPs } = useQuery({
-    queryKey: ["approved-edps"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("obligations")
-        .select("*")
-        .eq("type", "reporting")
-        .eq("status", "completed");
-      
-      if (error) throw error;
-      return data?.length || 0;
+  // Mock data - will be replaced with Supabase queries
+  const contracts = [
+    {
+      id: "1",
+      code: "AIPD-CSI001-1000-MN-0001",
+      title: "Estudio Hidrológico e Hidrogeológico Proyecto Dominga",
+      client: "Andes Iron SpA",
+      contractor: "Itasca Chile SpA",
+      status: "active",
+      progress: 5,
+      budget: 4501,
+      spent: 209.81,
+      slaStatus: "warning",
+      nextDeadline: "Rev.0 - 3 días restantes",
     },
-  });
-
-  // Calculate stats from real data
-  const activeContractsCount = contracts?.filter(c => c.status === 'active')?.length || 0;
-  const avgProgress = contracts?.length 
-    ? Math.round(contracts.reduce((sum, c) => sum + (c.risk_score || 0), 0) / contracts.length) 
-    : 0;
-  const pendingAlertsCount = alerts?.length || 0;
+  ];
 
   const stats = [
     { 
       label: "Contratos Activos", 
-      value: activeContractsCount.toString(), 
+      value: "1", 
       icon: FileText, 
       color: "text-primary",
       bgColor: "bg-primary/10"
     },
     { 
       label: "Progreso Promedio", 
-      value: `${avgProgress}%`, 
+      value: "5%", 
       icon: TrendingUp, 
       color: "text-success",
       bgColor: "bg-success/10"
     },
     { 
       label: "Alertas Pendientes", 
-      value: pendingAlertsCount.toString(), 
+      value: "3", 
       icon: AlertCircle, 
       color: "text-warning",
       bgColor: "bg-warning/10"
     },
     { 
       label: "EDPs Aprobados", 
-      value: (approvedEDPs || 0).toString(), 
+      value: "1", 
       icon: CheckCircle2, 
       color: "text-success",
       bgColor: "bg-success/10"
@@ -89,65 +73,14 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
     );
   }
 
-  if (contractsLoading) {
-    return (
-      <div className="space-y-6 animate-in fade-in duration-500">
-        <div>
-          <Skeleton className="h-10 w-80 mb-2" />
-          <Skeleton className="h-5 w-96" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-32" />
-          ))}
-        </div>
-        <Skeleton className="h-64" />
-      </div>
-    );
-  }
-
-  if (contractsError) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center space-y-3">
-          <AlertCircle className="w-16 h-16 mx-auto text-destructive" />
-          <h3 className="text-xl font-semibold">Error al cargar contratos</h3>
-          <p className="text-muted-foreground">
-            Por favor, intenta nuevamente más tarde
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!contracts || contracts.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center space-y-3">
-          <FileText className="w-16 h-16 mx-auto text-muted-foreground" />
-          <h3 className="text-xl font-semibold">No hay contratos</h3>
-          <p className="text-muted-foreground">
-            Comienza agregando tu primer contrato
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Page Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
-          <p className="text-muted-foreground">
-            Gestión inteligente de contratos mineros con IA
-          </p>
-        </div>
-        <Button onClick={() => setShowContractForm(true)} size="lg">
-          <Plus className="w-4 h-4 mr-2" />
-          Nuevo Contrato
-        </Button>
+      <div>
+        <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
+        <p className="text-muted-foreground">
+          Gestión inteligente de contratos mineros con IA
+        </p>
       </div>
 
       {/* Stats Grid */}
@@ -176,81 +109,75 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       <div className="space-y-4">
         <h2 className="text-xl font-semibold">Contratos Activos</h2>
         
-        {contracts.map((contract) => {
-          const progress = contract.risk_score || 0;
-          const budget = Number(contract.contract_value) || 0;
-          const spent = budget * (progress / 100);
-
-          return (
-            <Card
-              key={contract.id}
-              className="cursor-pointer hover:shadow-xl transition-spring hover:-translate-y-1 border-transparent shadow-md overflow-hidden group"
-              onClick={() => onSelectContract(contract.id)}
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-accent/5 opacity-0 group-hover:opacity-100 transition-smooth" />
-              
-              <CardHeader className="relative">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="secondary" className="font-mono text-xs">
-                        {contract.code}
-                      </Badge>
-                      <Badge variant="outline">
-                        {contract.status}
-                      </Badge>
-                    </div>
-                    <CardTitle className="text-xl mb-2">{contract.title}</CardTitle>
-                    <CardDescription className="flex items-center gap-4 text-sm">
-                      <span>Tipo: <span className="font-medium text-foreground">{contract.type}</span></span>
-                      {contract.mineral && (
-                        <>
-                          <span>•</span>
-                          <span>Mineral: <span className="font-medium text-foreground">{contract.mineral}</span></span>
-                        </>
-                      )}
-                    </CardDescription>
+        {contracts.map((contract) => (
+          <Card
+            key={contract.id}
+            className="cursor-pointer hover:shadow-xl transition-spring hover:-translate-y-1 border-transparent shadow-md overflow-hidden group"
+            onClick={() => onSelectContract(contract.id)}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-primary/5 to-accent/5 opacity-0 group-hover:opacity-100 transition-smooth" />
+            
+            <CardHeader className="relative">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Badge variant="secondary" className="font-mono text-xs">
+                      {contract.code}
+                    </Badge>
+                    <Badge 
+                      className={
+                        contract.slaStatus === "warning" 
+                          ? "bg-warning text-warning-foreground" 
+                          : "bg-success text-success-foreground"
+                      }
+                    >
+                      {contract.nextDeadline}
+                    </Badge>
                   </div>
-                  
-                  <div className="text-right">
-                    <div className="text-3xl font-bold text-gradient">{progress}%</div>
-                    <p className="text-xs text-muted-foreground">Avance</p>
-                  </div>
+                  <CardTitle className="text-xl mb-2">{contract.title}</CardTitle>
+                  <CardDescription className="flex items-center gap-4 text-sm">
+                    <span>Cliente: <span className="font-medium text-foreground">{contract.client}</span></span>
+                    <span>•</span>
+                    <span>Contratista: <span className="font-medium text-foreground">{contract.contractor}</span></span>
+                  </CardDescription>
                 </div>
-              </CardHeader>
+                
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-gradient">{contract.progress}%</div>
+                  <p className="text-xs text-muted-foreground">Avance</p>
+                </div>
+              </div>
+            </CardHeader>
 
-              <CardContent className="relative space-y-4">
+            <CardContent className="relative space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-muted-foreground">Progreso del Contrato</span>
+                  <span className="font-medium">
+                    {contract.spent.toLocaleString('es-CL')} / {contract.budget.toLocaleString('es-CL')} UF
+                  </span>
+                </div>
+                <Progress value={contract.progress} className="h-2" />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/50">
                 <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">Progreso del Contrato</span>
-                    <span className="font-medium">
-                      {spent.toLocaleString('es-CL', { maximumFractionDigits: 2 })} / {budget.toLocaleString('es-CL')} {contract.currency || 'UF'}
-                    </span>
-                  </div>
-                  <Progress value={progress} className="h-2" />
+                  <p className="text-xs text-muted-foreground mb-1">Presupuesto</p>
+                  <p className="font-semibold">{contract.budget.toLocaleString('es-CL')} UF</p>
                 </div>
-
-                <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/50">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Presupuesto</p>
-                    <p className="font-semibold">{budget.toLocaleString('es-CL')} {contract.currency || 'UF'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Gastado</p>
-                    <p className="font-semibold text-primary">{spent.toLocaleString('es-CL', { maximumFractionDigits: 2 })} {contract.currency || 'UF'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Disponible</p>
-                    <p className="font-semibold text-success">{(budget - spent).toLocaleString('es-CL', { maximumFractionDigits: 2 })} {contract.currency || 'UF'}</p>
-                  </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Gastado</p>
+                  <p className="font-semibold text-primary">{contract.spent.toLocaleString('es-CL')} UF</p>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Disponible</p>
+                  <p className="font-semibold text-success">{(contract.budget - contract.spent).toLocaleString('es-CL')} UF</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
-
-      <ContractFormDialog open={showContractForm} onOpenChange={setShowContractForm} />
     </div>
   );
 };
