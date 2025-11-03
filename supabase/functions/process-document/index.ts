@@ -972,16 +972,16 @@ serve(async (req) => {
 
     console.log(`[process-document] Saving ${document_type} to database for contract ${contract_code || contract?.code || 'N/A'}...`);
 
-    // Save extracted data to contract_documents
+    // Save extracted data to documents table
     const { error: docError } = await supabase
-      .from("contract_documents")
+      .from("documents")
       .insert({
         contract_id: contract?.id || null,
-        document_type,
+        doc_type: document_type,
         filename: storage_path.split("/").pop() || "unknown",
-        storage_path,
-        extracted_json: structured,
-        status: "processed"
+        file_url: storage_path,
+        processing_status: "completed",
+        extracted_data: structured
       });
 
     if (docError) {
