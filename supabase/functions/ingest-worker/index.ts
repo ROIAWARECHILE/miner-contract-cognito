@@ -143,6 +143,34 @@ serve(async (req) => {
       meta: {}
     });
 
+    // Register document in documents table
+    const docTypeMap: Record<string, string> = {
+      'contract': 'original',
+      'edp': 'original',
+      'quality': 'analysis',
+      'sso': 'analysis',
+      'tech': 'analysis',
+      'sdi': 'original',
+      'addendum': 'original'
+    };
+
+    const { error: docError } = await supabase.from('documents').upsert({
+      contract_id: job.contract_id,
+      filename: filename,
+      file_url: job.storage_path,
+      doc_type: docTypeMap[folderType] || 'original',
+      file_size: arrayBuffer.byteLength,
+      checksum: job.file_hash,
+      processing_status: 'completed',
+      extracted_data: extracted
+    }, { 
+      onConflict: 'contract_id,filename' 
+    });
+
+    if (docError) {
+      console.error('Error registering document:', docError);
+    }
+
     // Mark job as done
     await supabase
       .from('ingest_jobs')
@@ -259,8 +287,8 @@ async function applyUpsert(supabase: any, upsert: any, projectPrefix: string) {
     case 'payment_states':
       await supabase.from('payment_states').upsert(payload, { onConflict: 'contract_id,edp_number' });
       break;
-    case 'contract_documents':
-      await supabase.from('contract_documents').upsert(payload, { onConflict: 'contract_id,filename' });
+    case 'documents':
+      await supabase.from('documents').upsert(payload, { onConflict: 'contract_id,filename' });
       break;
     case 'sla_alerts':
       await supabase.from('sla_alerts').insert(payload);

@@ -824,10 +824,12 @@ export type Database = {
           contract_id: string
           created_at: string
           doc_type: Database["public"]["Enums"]["document_type"]
+          extracted_data: Json | null
           file_size: number | null
           file_url: string
           filename: string
           id: string
+          processing_status: string | null
           uploaded_by: string | null
           version: number | null
         }
@@ -836,10 +838,12 @@ export type Database = {
           contract_id: string
           created_at?: string
           doc_type?: Database["public"]["Enums"]["document_type"]
+          extracted_data?: Json | null
           file_size?: number | null
           file_url: string
           filename: string
           id?: string
+          processing_status?: string | null
           uploaded_by?: string | null
           version?: number | null
         }
@@ -848,10 +852,12 @@ export type Database = {
           contract_id?: string
           created_at?: string
           doc_type?: Database["public"]["Enums"]["document_type"]
+          extracted_data?: Json | null
           file_size?: number | null
           file_url?: string
           filename?: string
           id?: string
+          processing_status?: string | null
           uploaded_by?: string | null
           version?: number | null
         }
@@ -960,6 +966,7 @@ export type Database = {
       ingest_jobs: {
         Row: {
           attempts: number | null
+          contract_id: string | null
           created_at: string | null
           etag: string | null
           file_hash: string | null
@@ -972,6 +979,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number | null
+          contract_id?: string | null
           created_at?: string | null
           etag?: string | null
           file_hash?: string | null
@@ -984,6 +992,7 @@ export type Database = {
         }
         Update: {
           attempts?: number | null
+          contract_id?: string | null
           created_at?: string | null
           etag?: string | null
           file_hash?: string | null
@@ -994,7 +1003,15 @@ export type Database = {
           storage_path?: string
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ingest_jobs_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ingest_logs: {
         Row: {
@@ -1577,6 +1594,7 @@ export type Database = {
         Args: never
         Returns: {
           attempts: number | null
+          contract_id: string | null
           created_at: string | null
           etag: string | null
           file_hash: string | null

@@ -1,9 +1,10 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
 import {
   AreaChart,
   Area,
@@ -14,6 +15,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
+import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 
 interface ContractDetailProps {
   contractId: string;
@@ -26,6 +28,16 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: analytics, isLoading: analyticsLoading } = useContractAnalytics(CONTRACT_CODE);
   const { data: tasks = [], isLoading: tasksLoading } = useContractTasks(CONTRACT_CODE);
   const { data: payments = [], isLoading: paymentsLoading } = usePaymentStates(CONTRACT_CODE);
+  const { data: documents = [] } = useContractDocuments(contractId);
+  
+  const handleDownload = async (path: string) => {
+    try {
+      await downloadDocument(path);
+      toast.success('Documento descargado');
+    } catch (error) {
+      toast.error('Error al descargar documento');
+    }
+  };
 
   // S-curve data (mock plan + real from payments)
   const sCurveData = [
@@ -228,15 +240,74 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="documents">
+        <TabsContent value="documents" className="space-y-4">
           <Card className="border-transparent shadow-md">
             <CardHeader>
-              <CardTitle>Documentos del Contrato</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Documentos Cargados ({documents.length})
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">
-                {payments.length} EDPs procesados
-              </p>
+              <div className="space-y-2">
+                {documents.length > 0 ? (
+                  documents.map((doc: any) => (
+                    <div key={doc.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors">
+                      <div className="flex-1">
+                        <p className="font-medium">{doc.filename}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {doc.doc_type} • {(doc.file_size / 1024).toFixed(0)} KB • {new Date(doc.created_at).toLocaleDateString('es-CL')}
+                        </p>
+                        {doc.processing_status && (
+                          <Badge variant={doc.processing_status === 'completed' ? 'default' : 'secondary'} className="mt-1">
+                            {doc.processing_status}
+                          </Badge>
+                        )}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="ghost"
+                        onClick={() => handleDownload(doc.file_url)}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay documentos cargados
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-transparent shadow-md">
+            <CardHeader>
+              <CardTitle>EDPs Procesados</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {payments.length > 0 ? (
+                  payments.map((edp: any) => (
+                    <div key={edp.edp_number} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <p className="font-medium">EDP N°{edp.edp_number}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {edp.period_label} • {edp.amount_uf} UF
+                        </p>
+                      </div>
+                      <Badge variant={edp.status === 'approved' ? 'default' : 'secondary'}>
+                        {edp.status}
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay EDPs procesados
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

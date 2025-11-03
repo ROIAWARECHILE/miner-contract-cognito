@@ -38,7 +38,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const { storage_path, etag, file_hash, project_prefix } = await req.json();
+    const { storage_path, etag, file_hash, project_prefix, contract_id } = await req.json();
 
     if (!storage_path || !project_prefix) {
       return new Response(
@@ -55,6 +55,7 @@ serve(async (req) => {
         storage_path,
         file_hash,
         etag,
+        contract_id,
         status: 'queued',
         attempts: 0
       })

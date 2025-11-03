@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
+import { useContracts } from '@/hooks/useContract';
 
 type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum';
 
@@ -19,17 +20,22 @@ const LABEL: Record<DocType,string> = {
 interface DocumentUploaderProps {
   projectPrefix?: string;
   defaultType?: DocType;
+  preselectedContractId?: string;
 }
 
 export default function DocumentUploader({
   projectPrefix = 'dominga',
   defaultType = 'edp',
+  preselectedContractId
 }: DocumentUploaderProps) {
   const [docType, setDocType] = useState<DocType>(defaultType);
+  const [contractId, setContractId] = useState<string>(preselectedContractId || '');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState<string[]>([]);
+  
+  const { data: contracts } = useContracts();
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
@@ -49,6 +55,12 @@ export default function DocumentUploader({
 
   async function uploadAll() {
     if (!files.length) return;
+    
+    if (!contractId) {
+      toast.error('Debes seleccionar un contrato');
+      return;
+    }
+    
     setBusy(true); 
     setProgress(0); 
     setLog([]);
@@ -76,7 +88,8 @@ export default function DocumentUploader({
         // Enqueue ingestion job
         const { error: enqueueErr } = await supabase.functions.invoke('ingest-enqueue', {
           body: { 
-            project_prefix: projectPrefix, 
+            project_prefix: projectPrefix,
+            contract_id: contractId,
             storage_path: path, 
             file_hash: hash 
           }
@@ -102,6 +115,23 @@ export default function DocumentUploader({
 
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-3">
+        <label className="text-sm font-medium text-muted-foreground">Contrato</label>
+        <select 
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+          value={contractId} 
+          onChange={e => setContractId(e.target.value)}
+          required
+        >
+          <option value="">Seleccionar contrato...</option>
+          {contracts?.map(c => (
+            <option key={c.id} value={c.id}>
+              {c.code} - {c.title}
+            </option>
+          ))}
+        </select>
+      </div>
+      
       <div className="mb-3 flex items-center gap-3">
         <label className="text-sm font-medium text-muted-foreground">Tipo</label>
         <select 
