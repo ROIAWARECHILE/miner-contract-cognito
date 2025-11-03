@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, X, FileText, Loader2 } from "lucide-react";
+import { Upload, X, FileText, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,9 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useContracts } from "@/hooks/useContract";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DocumentUploadDialogProps {
   open: boolean;
@@ -34,13 +37,21 @@ export const DocumentUploadDialog = ({
   const [selectedContract, setSelectedContract] = useState<string>(preSelectedContractId || "");
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"select" | "create">("select");
+  
+  // Form for new contract
+  const [newContract, setNewContract] = useState({
+    code: "",
+    title: "",
+    type: "services",
+  });
+
   const { toast } = useToast();
-  const { data: contracts } = useContracts();
+  const { data: contracts, refetch: refetchContracts } = useContracts();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type
       const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'];
       if (!validTypes.includes(file.type)) {
         toast({
@@ -51,7 +62,6 @@ export const DocumentUploadDialog = ({
         return;
       }
 
-      // Validate file size (20MB max)
       if (file.size > 20 * 1024 * 1024) {
         toast({
           title: "Archivo muy grande",
@@ -65,11 +75,71 @@ export const DocumentUploadDialog = ({
     }
   };
 
-  const handleUpload = async () => {
-    if (!selectedFile || !selectedContract) {
+  const createQuickContract = async () => {
+    if (!newContract.code || !newContract.title || !newContract.type) {
       toast({
         title: "Datos incompletos",
-        description: "Selecciona un contrato y un archivo",
+        description: "Completa el código, título y tipo del contrato",
+        variant: "destructive"
+      });
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('contracts')
+        .insert({
+          code: newContract.code,
+          title: newContract.title,
+          type: newContract.type as any,
+          status: 'draft' as any,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: "Contrato creado",
+        description: "El contrato ha sido creado exitosamente",
+      });
+
+      await refetchContracts();
+      return data.id;
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo crear el contrato",
+        variant: "destructive"
+      });
+      return null;
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      toast({
+        title: "Archivo requerido",
+        description: "Selecciona un archivo para cargar",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    let contractId = selectedContract;
+
+    // If creating new contract, create it first
+    if (activeTab === "create") {
+      const newId = await createQuickContract();
+      if (!newId) return;
+      contractId = newId;
+      setSelectedContract(newId);
+    }
+
+    if (!contractId) {
+      toast({
+        title: "Contrato requerido",
+        description: "Selecciona o crea un contrato",
         variant: "destructive"
       });
       return;
@@ -78,8 +148,7 @@ export const DocumentUploadDialog = ({
     setUploading(true);
 
     try {
-      // Upload to storage
-      const fileName = `${selectedContract}/${Date.now()}-${selectedFile.name}`;
+      const fileName = `${contractId}/${Date.now()}-${selectedFile.name}`;
       const { error: uploadError } = await supabase.storage
         .from('contract-documents')
         .upload(fileName, selectedFile);
@@ -89,10 +158,9 @@ export const DocumentUploadDialog = ({
       setUploading(false);
       setAnalyzing(true);
 
-      // Analyze document
       const { data, error: functionError } = await supabase.functions.invoke('analyze-document', {
         body: {
-          contractId: selectedContract,
+          contractId,
           fileName: selectedFile.name,
           filePath: fileName
         }
@@ -105,9 +173,10 @@ export const DocumentUploadDialog = ({
         description: "El documento ha sido cargado y analizado exitosamente",
       });
 
-      // Reset form
       setSelectedFile(null);
       setSelectedContract(preSelectedContractId || "");
+      setNewContract({ code: "", title: "", type: "services" });
+      setActiveTab("select");
       onOpenChange(false);
 
     } catch (error: any) {
@@ -125,32 +194,80 @@ export const DocumentUploadDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Cargar Documento</DialogTitle>
           <DialogDescription>
-            Sube un documento para analizar con IA
+            Selecciona o crea un contrato y sube un documento para analizar con IA
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Contract selector */}
+          {/* Contract selection/creation */}
           <div>
             <label className="text-sm font-medium mb-2 block">
               Contrato
             </label>
-            <Select value={selectedContract} onValueChange={setSelectedContract}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona un contrato" />
-              </SelectTrigger>
-              <SelectContent>
-                {contracts?.map((contract) => (
-                  <SelectItem key={contract.id} value={contract.id}>
-                    {contract.code} - {contract.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "select" | "create")}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="select">Seleccionar</TabsTrigger>
+                <TabsTrigger value="create">Crear Nuevo</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="select" className="mt-3">
+                <Select value={selectedContract} onValueChange={setSelectedContract}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un contrato" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {contracts?.map((contract) => (
+                      <SelectItem key={contract.id} value={contract.id}>
+                        {contract.code} - {contract.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TabsContent>
+
+              <TabsContent value="create" className="mt-3 space-y-3">
+                <div>
+                  <Label htmlFor="new-code">Código *</Label>
+                  <Input
+                    id="new-code"
+                    placeholder="Ej: CONT-2025-001"
+                    value={newContract.code}
+                    onChange={(e) => setNewContract({ ...newContract, code: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-title">Título *</Label>
+                  <Input
+                    id="new-title"
+                    placeholder="Ej: Contrato de Servicios"
+                    value={newContract.title}
+                    onChange={(e) => setNewContract({ ...newContract, title: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-type">Tipo *</Label>
+                  <Select 
+                    value={newContract.type} 
+                    onValueChange={(value) => setNewContract({ ...newContract, type: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="concession">Concesión</SelectItem>
+                      <SelectItem value="services">Servicios</SelectItem>
+                      <SelectItem value="logistics">Logística</SelectItem>
+                      <SelectItem value="supply">Suministro</SelectItem>
+                      <SelectItem value="lease">Arriendo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
 
           {/* File input */}
@@ -221,7 +338,7 @@ export const DocumentUploadDialog = ({
             </Button>
             <Button
               onClick={handleUpload}
-              disabled={!selectedFile || !selectedContract || uploading || analyzing}
+              disabled={!selectedFile || uploading || analyzing}
             >
               {uploading || analyzing ? (
                 <>
@@ -231,7 +348,7 @@ export const DocumentUploadDialog = ({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  Cargar y Analizar
+                  {activeTab === "create" ? "Crear y Cargar" : "Cargar y Analizar"}
                 </>
               )}
             </Button>
