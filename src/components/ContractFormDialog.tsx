@@ -55,6 +55,8 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
     setLoading(true);
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { error } = await supabase
         .from('contracts')
         .insert({
@@ -71,6 +73,7 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
           country: formData.country || null,
           mineral: formData.mineral || null,
           summary_ai: formData.summary_ai || null,
+          created_by: user?.id,
         });
 
       if (error) throw error;

@@ -86,6 +86,8 @@ export const DocumentUploadDialog = ({
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { data, error } = await supabase
         .from('contracts')
         .insert({
@@ -93,6 +95,7 @@ export const DocumentUploadDialog = ({
           title: newContract.title,
           type: newContract.type as any,
           status: 'draft' as any,
+          created_by: user?.id,
         })
         .select()
         .single();
