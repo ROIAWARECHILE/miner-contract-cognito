@@ -16,15 +16,18 @@ import { useContracts } from "@/hooks/useContract";
 interface DocumentUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  contractId?: string; // If provided, adds document to existing contract
 }
 
 export const DocumentUploadDialog = ({ 
   open, 
-  onOpenChange
+  onOpenChange,
+  contractId
 }: DocumentUploadDialogProps) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [documentType, setDocumentType] = useState<string>('edp');
 
   const { toast } = useToast();
   const { refetch: refetchContracts } = useContracts();
@@ -89,22 +92,41 @@ export const DocumentUploadDialog = ({
       setUploading(false);
       setAnalyzing(true);
 
-      // Analyze document and create contract automatically
-      const { data, error: functionError } = await supabase.functions.invoke('analyze-document', {
-        body: {
-          fileName: selectedFile.name,
-          filePath: tempFileName
-        }
-      });
+      // If contractId exists, add document to existing contract
+      if (contractId) {
+        const { data, error: functionError } = await supabase.functions.invoke('analyze-additional-document', {
+          body: {
+            contractId,
+            fileName: selectedFile.name,
+            filePath: tempFileName,
+            documentType
+          }
+        });
 
-      if (functionError) throw functionError;
+        if (functionError) throw functionError;
 
-      await refetchContracts();
+        toast({
+          title: "✅ Documento agregado",
+          description: data.message || `Documento "${selectedFile.name}" agregado al contrato.`,
+        });
+      } else {
+        // Create new contract
+        const { data, error: functionError } = await supabase.functions.invoke('analyze-document', {
+          body: {
+            fileName: selectedFile.name,
+            filePath: tempFileName
+          }
+        });
 
-      toast({
-        title: "✅ Contrato creado",
-        description: data.message || `${data.contract_code} - ${data.contract_title}. Edita el contrato para completar la información.`,
-      });
+        if (functionError) throw functionError;
+
+        await refetchContracts();
+
+        toast({
+          title: "✅ Contrato creado",
+          description: data.message || `${data.contract_code} - ${data.contract_title}. Edita el contrato para completar la información.`,
+        });
+      }
 
       setSelectedFile(null);
       onOpenChange(false);
@@ -126,13 +148,37 @@ export const DocumentUploadDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Cargar Contrato</DialogTitle>
+          <DialogTitle>{contractId ? "Agregar Documento al Contrato" : "Cargar Contrato"}</DialogTitle>
           <DialogDescription>
-            Sube el PDF del contrato para crear un borrador. Luego completa la información detallada manualmente.
+            {contractId 
+              ? "Sube un EDP, SDI u otro documento relacionado al contrato. El sistema extraerá información automáticamente."
+              : "Sube el PDF del contrato para crear un borrador. Luego completa la información detallada manualmente."
+            }
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* Document type selector (only for adding to existing contract) */}
+          {contractId && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Tipo de Documento</label>
+              <select 
+                value={documentType}
+                onChange={(e) => setDocumentType(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md"
+                disabled={uploading || analyzing}
+              >
+                <option value="edp">Estado de Pago (EDP)</option>
+                <option value="sdi">Solicitud de Información (SDI)</option>
+                <option value="plan">Plan Técnico</option>
+                <option value="anexo">Anexo</option>
+                <option value="certificado">Certificado</option>
+                <option value="informe">Informe</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+          )}
+
           {/* File input */}
           <div>
             <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
@@ -181,8 +227,10 @@ export const DocumentUploadDialog = ({
                   ℹ️ Extracción básica de información
                 </p>
                 <p className="text-xs text-amber-700 dark:text-amber-300">
-                  El sistema creará un contrato en borrador basado en el nombre del archivo. 
-                  Deberás completar manualmente la información detallada (fechas, valores, empresa, etc.) después de la carga.
+                  {contractId 
+                    ? "El sistema extraerá información básica del nombre del archivo. Deberás verificar y completar los datos manualmente."
+                    : "El sistema creará un contrato en borrador basado en el nombre del archivo. Deberás completar manualmente la información detallada (fechas, valores, empresa, etc.) después de la carga."
+                  }
                 </p>
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                   <strong>Nota:</strong> La extracción completa automática de PDFs requiere OCR avanzado y será implementada en una futura versión.
@@ -223,7 +271,7 @@ export const DocumentUploadDialog = ({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  Crear Contrato Borrador
+                  {contractId ? "Agregar Documento" : "Crear Contrato Borrador"}
                 </>
               )}
             </Button>
