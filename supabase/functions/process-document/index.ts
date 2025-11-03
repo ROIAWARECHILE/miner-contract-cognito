@@ -6,17 +6,58 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Document type specific prompts
-const EXTRACTION_PROMPTS: Record<string, string> = {
-  edp: `You are an expert data extractor for mining contract payment statements (EDP - Estado de Pago).
+// EDP extraction prompt with canonical task mapping
+const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor. Your job is to transform the JSON parsed by LlamaParse for a mining payment statement (EDP) into a STRICT, canonical JSON that matches the contract's task catalog.
 
-Parse the following JSON extracted from a PDF and return normalized JSON with numeric fields for the payment statement.
+IMPORTANT PRINCIPLES
+- Never invent task names or numbers.
+- Always normalize each row to the contract's canonical task_number and name using the provided catalog.
+- Only return VALID JSON (no prose). All numeric values are decimals with dot separator.
 
-CRITICAL: Extract the COMPLETE task names exactly as they appear in the document, including all descriptive text. Do not abbreviate or summarize task names.
+INPUTS PROVIDED
+1) parsed_json: JSON from LlamaParse (contains text + tables).
+2) contract_code: string.
+3) tasks_map: an object mapping task_number → canonical_name for this contract.
 
-Target schema:
+WHAT YOU MUST EXTRACT
+From parsed_json (table usually titled "TAREA" with a "Total" UF column, plus header/footer boxes), return exactly:
+
 {
-  "contract_code": "AIPD-CSI001-1000-MN-0001",
+  "contract_code": "<contract_code>",
+  "edp_number": <int>,
+  "period": "<Mon-YYYY>",
+  "uf_rate": <number>,
+  "amount_uf": <number>,
+  "amount_clp": <integer>,
+  "accumulated_prev_uf": <number>,
+  "accumulated_total_uf": <number>,
+  "contract_progress_pct": <number>,
+  "tasks_executed": [
+    { "task_number":"<canonical>", "name":"<canonical>", "budget_uf": <number|null>, "spent_uf": <number> }
+  ]
+}
+
+CANONICAL TASK NORMALIZATION RULES
+1) The "tasks_map" is the source of truth for names. The output "name" MUST come from tasks_map[task_number].
+2) Detect a row's raw number from the first cell if it starts with a number pattern: ^(\\d+(?:\\.\\d+)?)\\s*[-–]
+   - If raw_number == "1" and there is another row with "1.2" in this EDP, normalize raw "1" to "1.1".
+   - If raw_number is an integer X and tasks_map contains "X.0", normalize to "X.0".
+3) If the row has no explicit number, resolve by semantic similarity against tasks_map values (high-confidence only, ≥0.90). If no confident match, EXCLUDE the row.
+4) Omit rows where the "Total" UF equals zero.
+5) budget_uf: if budget for that task appears in the header table or is known by context, include it; otherwise use null.
+6) Merge duplicate rows that map to the same task_number by summing their UF in spent_uf.
+
+VALIDATION & CONSISTENCY
+- Perform two checks:
+  a) |sum(tasks_executed[].spent_uf) - amount_uf| ≤ 0.5
+  b) |(accumulated_prev_uf + amount_uf) - accumulated_total_uf| ≤ 0.5
+- If either check fails, set "meta.review_required": true.
+
+OUTPUT FORMAT
+Return ONLY this JSON object (no markdown, no commentary):
+
+{
+  "contract_code": "...",
   "edp_number": 2,
   "period": "Ago-2025",
   "uf_rate": 39383.07,
@@ -25,24 +66,27 @@ Target schema:
   "accumulated_prev_uf": 209.8,
   "accumulated_total_uf": 628.2,
   "contract_progress_pct": 14,
-  "tasks_executed": [
-    {
-      "task_number": "1.0",
-      "name": "Recopilación y análisis de la información hidrológica, hidrogeológica y ambiental",
-      "budget_uf": 507,
-      "spent_uf": 94.63,
-      "progress_pct": 19
-    }
-  ]
+  "tasks_executed": [...],
+  "meta": {
+    "checks": {
+      "sum_tasks_equals_amount_uf": true|false,
+      "accum_prev_plus_current_equals_total": true|false
+    },
+    "review_required": true|false,
+    "notes": []
+  }
 }
 
-IMPORTANT: 
-- Extract task numbers as they appear (e.g., "1.0", "1.2", "2.0", etc.)
-- Extract FULL task names with all descriptive text
-- Convert all monetary values to numbers (remove commas, dots as thousands separators)
-- Use dots for decimal separators
+ROBUSTNESS NOTES
+- Normalize thousand/decimal separators (e.g., "16.479.349" → 16479349; "418,44" → 418.44).
+- If multiple "TAREA" tables exist, choose the one with a "Total" UF column and largest number of non-zero rows.
+- Ignore administrative footers, headers, watermarks, and logos.
 
-Return ONLY valid JSON, no markdown formatting.`,
+Return only the final JSON object.`;
+
+// Document type specific prompts
+const EXTRACTION_PROMPTS: Record<string, string> = {
+  edp: EDP_EXTRACTION_PROMPT,
   
   contract: `You are an expert at extracting contract metadata from legal documents.
 
@@ -331,8 +375,36 @@ serve(async (req) => {
       .update({ progress: { step: "openai_extraction", percent: 85 } })
       .eq("id", job.id);
 
-    const systemPrompt = EXTRACTION_PROMPTS[document_type] || EXTRACTION_PROMPTS.contract;
+    let systemPrompt = EXTRACTION_PROMPTS[document_type] || EXTRACTION_PROMPTS.contract;
     const parsedText = JSON.stringify(parsed).slice(0, 100000); // Limit to 100k chars
+    
+    let userPrompt = `Document content:\n\n${parsedText}`;
+
+    // For EDP documents, fetch and include the contract's task catalog
+    if (document_type === "edp") {
+      const { data: tasks, error: tasksError } = await supabase
+        .from("contract_tasks")
+        .select("task_number, task_name")
+        .eq("contract_id", contract.id)
+        .order("task_number");
+
+      if (!tasksError && tasks && tasks.length > 0) {
+        const tasksMap: Record<string, string> = {};
+        tasks.forEach(t => {
+          tasksMap[t.task_number] = t.task_name;
+        });
+        
+        userPrompt = `Contract Code: ${contract_code}
+
+Tasks Map (canonical catalog):
+${JSON.stringify(tasksMap, null, 2)}
+
+Document content:
+${parsedText}`;
+      } else {
+        console.log("[process-document] No tasks found for contract, proceeding without tasks_map");
+      }
+    }
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -345,7 +417,7 @@ serve(async (req) => {
         temperature: 0,
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Document content:\n\n${parsedText}` }
+          { role: "user", content: userPrompt }
         ]
       })
     });
