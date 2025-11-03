@@ -28,6 +28,10 @@ serve(async (req) => {
 
     if (downloadError) throw new Error(`Download failed: ${downloadError.message}`);
 
+    // Get file size directly from blob
+    const fileSize = fileData.size;
+    console.log('File downloaded, size:', fileSize, 'bytes');
+
     // Prepare AI prompt based on document type
     let systemPrompt = '';
     let extractionSchema: any = {};
@@ -113,6 +117,16 @@ Retorna el resultado en formato JSON siguiendo este esquema: ${JSON.stringify(ex
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
+      console.error('AI API error:', aiResponse.status, errorText);
+      
+      // Manejar errores específicos
+      if (aiResponse.status === 429) {
+        throw new Error('Rate limit excedido. Intenta nuevamente en unos minutos.');
+      }
+      if (aiResponse.status === 402) {
+        throw new Error('Créditos de IA agotados. Contacta al administrador.');
+      }
+      
       throw new Error(`AI analysis failed: ${errorText}`);
     }
 
@@ -134,12 +148,26 @@ Retorna el resultado en formato JSON siguiendo este esquema: ${JSON.stringify(ex
       };
     }
 
+    // Determinar tipo de análisis según documentType
+    const getAnalysisType = (docType: string) => {
+      const typeMap: Record<string, string> = {
+        'edp': 'edp_analysis',
+        'sdi': 'sdi_analysis',
+        'plan': 'document_classification',
+        'anexo': 'document_classification',
+        'certificado': 'document_classification',
+        'informe': 'document_classification',
+        'otro': 'additional_document'
+      };
+      return typeMap[docType] || 'additional_document';
+    };
+
     // Save AI analysis
     const { data: analysisData, error: analysisError } = await supabase
       .from('ai_analyses')
       .insert({
         contract_id: contractId,
-        analysis_type: 'full_contract', // Using existing type
+        analysis_type: getAnalysisType(documentType),
         raw_output_json: { ai_response: analysisResult },
         structured_output: structuredOutput,
         model_used: 'google/gemini-2.5-flash',
@@ -152,29 +180,79 @@ Retorna el resultado en formato JSON siguiendo este esquema: ${JSON.stringify(ex
       console.error('Failed to save analysis:', analysisError);
     }
 
-    // Update contract if it's an EDP with extracted data
-    if (documentType === 'edp' && structuredOutput.amount_uf) {
-      const { error: updateError } = await supabase
-        .from('contracts')
-        .update({
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', contractId);
+    // Update contract_tasks if this is an EDP
+    if (documentType === 'edp' && structuredOutput.tasks_executed && Array.isArray(structuredOutput.tasks_executed)) {
+      console.log('Updating contract_tasks with EDP data...');
+      
+      for (const task of structuredOutput.tasks_executed) {
+        const { error: taskError } = await supabase
+          .from('contract_tasks')
+          .upsert({
+            contract_id: contractId,
+            task_number: task.task_number,
+            task_name: task.name,
+            budget_uf: task.budget || 0,
+            spent_uf: task.spent || 0,
+            progress_percentage: task.progress || 0,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'contract_id,task_number'
+          });
 
-      if (updateError) {
-        console.error('Failed to update contract:', updateError);
+        if (taskError) {
+          console.error('Error upserting task:', taskError);
+        }
+      }
+
+      // Calcular progreso total y actualizar contrato
+      const { data: allTasks } = await supabase
+        .from('contract_tasks')
+        .select('progress_percentage, spent_uf')
+        .eq('contract_id', contractId);
+
+      if (allTasks && allTasks.length > 0) {
+        const avgProgress = Math.round(
+          allTasks.reduce((sum, t) => sum + t.progress_percentage, 0) / allTasks.length
+        );
+        const totalSpent = allTasks.reduce((sum, t) => sum + (t.spent_uf || 0), 0);
+
+        const { error: updateError } = await supabase
+          .from('contracts')
+          .update({
+            contract_value: totalSpent,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', contractId);
+
+        if (updateError) {
+          console.error('Error updating contract:', updateError);
+        }
       }
     }
 
-    // Create document record (not moving file, keeping in temp)
+    // Mapear documentType a doc_type correcto
+    const getDocType = (docType: string) => {
+      const typeMap: Record<string, string> = {
+        'edp': 'amendment',
+        'sdi': 'correspondence',
+        'plan': 'original',
+        'anexo': 'original',
+        'certificado': 'original',
+        'informe': 'original',
+        'otro': 'original'
+      };
+      return typeMap[docType] || 'original';
+    };
+
+    // Create document record
     const { data: documentData, error: docError } = await supabase
       .from('documents')
       .insert({
         contract_id: contractId,
         filename: fileName,
         file_url: filePath,
-        doc_type: 'amendment', // Using existing enum value
-        file_size: fileData.size,
+        doc_type: getDocType(documentType),
+        file_size: fileSize,
       })
       .select()
       .single();

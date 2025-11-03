@@ -35,9 +35,8 @@ serve(async (req) => {
       throw new Error(`Failed to download file: ${downloadError.message}`);
     }
 
-    // Get file size
-    const arrayBuffer = await fileData.arrayBuffer();
-    const fileSize = arrayBuffer.byteLength;
+    // Get file size directly from blob
+    const fileSize = fileData.size;
     console.log('File downloaded, size:', fileSize, 'bytes');
 
     // Analyze document with Lovable AI (text-based analysis)
@@ -76,6 +75,15 @@ IMPORTANTE: Solo usa la información del nombre del archivo. Deja otros campos c
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI API error:', aiResponse.status, errorText);
+      
+      // Manejar errores específicos
+      if (aiResponse.status === 429) {
+        throw new Error('Rate limit excedido. Intenta nuevamente en unos minutos.');
+      }
+      if (aiResponse.status === 402) {
+        throw new Error('Créditos de IA agotados. Contacta al administrador.');
+      }
+      
       throw new Error(`AI analysis failed: ${errorText}`);
     }
 
@@ -123,7 +131,7 @@ IMPORTANTE: Solo usa la información del nombre del archivo. Deja otros campos c
       .from('ai_analyses')
       .insert({
         contract_id: contract.id,
-        analysis_type: 'basic_extraction',
+        analysis_type: 'initial_contract_creation',
         raw_output_json: analysis,
         structured_output: analysis,
         model_used: 'google/gemini-2.5-flash',

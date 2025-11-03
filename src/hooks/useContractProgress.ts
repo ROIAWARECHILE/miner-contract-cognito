@@ -35,13 +35,36 @@ export const useContractProgress = (contractId: string | null) => {
         };
       }
 
+      // Validar formato UUID
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(contractId)) {
+        console.error('Invalid UUID format:', contractId);
+        return {
+          totalBudget: 0,
+          totalSpent: 0,
+          available: 0,
+          avgProgress: 0,
+          tasks: []
+        };
+      }
+
       const { data: tasks, error } = await supabase
         .from('contract_tasks')
         .select('*')
         .eq('contract_id', contractId)
         .order('task_number', { ascending: true });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching contract tasks:', error);
+        // Retornar estructura vacía en lugar de lanzar error
+        return {
+          totalBudget: 0,
+          totalSpent: 0,
+          available: 0,
+          avgProgress: 0,
+          tasks: []
+        };
+      }
 
       const tasksData = tasks || [];
       const totalBudget = tasksData.reduce((sum, t) => sum + (Number(t.budget_uf) || 0), 0);

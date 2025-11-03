@@ -12,6 +12,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useContracts } from "@/hooks/useContract";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface DocumentUploadDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export const DocumentUploadDialog = ({
   const { toast } = useToast();
   const { refetch: refetchContracts } = useContracts();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -46,10 +48,10 @@ export const DocumentUploadDialog = ({
         return;
       }
 
-      if (file.size > 20 * 1024 * 1024) {
+      if (file.size > 50 * 1024 * 1024) {
         toast({
           title: "Archivo muy grande",
-          description: "El archivo no debe superar los 20MB",
+          description: "El archivo no debe superar los 50MB",
           variant: "destructive"
         });
         return;
@@ -109,6 +111,10 @@ export const DocumentUploadDialog = ({
           title: "✅ Documento agregado",
           description: data.message || `Documento "${selectedFile.name}" agregado al contrato.`,
         });
+
+        // Invalidar cache para actualizar la UI
+        await queryClient.invalidateQueries({ queryKey: ['contract-documents', contractId] });
+        await queryClient.invalidateQueries({ queryKey: ['contract-progress', contractId] });
       } else {
         // Create new contract
         const { data, error: functionError } = await supabase.functions.invoke('analyze-document', {
@@ -214,7 +220,7 @@ export const DocumentUploadDialog = ({
                       Click para seleccionar o arrastra el archivo
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      PDF del contrato (máx. 20MB)
+                      PDF del contrato (máx. 50MB)
                     </p>
                   </>
                 )}
