@@ -94,42 +94,20 @@ serve(async (req) => {
       meta: { document_type: docType, filename }
     });
 
-    // Step 1: Parse PDF with Lovable's document parser
-    console.log('Parsing PDF from storage:', job.storage_path);
+    // Step 1: Convert PDF to base64 for vision model
+    console.log('Converting PDF to base64 for AI vision model, file size:', arrayBuffer.byteLength);
     
-    const formData = new FormData();
-    formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), filename);
+    const base64Pdf = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
     
-    const parseResponse = await fetch('https://ai.gateway.lovable.dev/v1/documents/parse', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
-      },
-      body: formData,
-    });
-
-    if (!parseResponse.ok) {
-      const errorText = await parseResponse.text();
-      console.error('PDF parsing failed:', parseResponse.status, errorText);
-      throw new Error(`PDF parsing failed: ${parseResponse.status} - ${errorText}`);
-    }
-
-    const parseResult = await parseResponse.json();
-    const parsedText = parseResult.text || '';
-    
-    console.log('PDF parsed successfully:', {
-      text_length: parsedText.length,
-      pages: parseResult.pages
-    });
-
     await supabase.from('ingest_logs').insert({
       job_id: job.id,
       step: 'parse',
-      message: `Parsed ${parsedText.length} characters from PDF`,
-      meta: { text_length: parsedText.length, pages: parseResult.pages }
+      message: `PDF converted to base64 (${base64Pdf.length} chars) for vision analysis`,
+      meta: { pdf_size_bytes: arrayBuffer.byteLength }
     });
 
-    // Step 2: Extract structured data from parsed text with AI
+    // Step 2: Extract structured data directly from PDF using Gemini Vision
+    console.log('Extracting structured data from PDF with Gemini Vision');
     const systemPrompt = buildSystemPrompt(docType);
     
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -141,10 +119,28 @@ serve(async (req) => {
       body: JSON.stringify({
         model: 'google/gemini-2.5-flash',
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Filename: ${filename}\n\nParsed text from PDF:\n\n${parsedText}\n\nExtract structured data according to the schema.` }
+          { 
+            role: 'system', 
+            content: systemPrompt 
+          },
+          { 
+            role: 'user', 
+            content: [
+              {
+                type: 'text',
+                text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:application/pdf;base64,${base64Pdf}`
+                }
+              }
+            ]
+          }
         ],
-        response_format: { type: 'json_object' }
+        response_format: { type: 'json_object' },
+        max_tokens: 4000
       }),
     });
 
