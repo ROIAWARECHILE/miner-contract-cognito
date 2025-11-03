@@ -531,15 +531,19 @@ ${parsedText}`;
 
       console.log(`[process-document] Payment state upserted`);
 
-      // Upsert tasks
+      // Upsert tasks with calculated progress percentage
       for (const task of structured.tasks_executed || []) {
+        const budgetUf = parseFloat(task.budget_uf) || 0;
+        const spentUf = parseFloat(task.spent_uf) || 0;
+        const progressPercentage = budgetUf > 0 ? Math.round((spentUf / budgetUf) * 100) : 0;
+        
         await supabase.from("contract_tasks").upsert({
           contract_id: contract.id,
           task_number: task.task_number,
           task_name: task.name,
-          spent_uf: task.spent_uf,
-          budget_uf: task.budget_uf,
-          progress_percentage: task.progress_pct || 0
+          spent_uf: spentUf,
+          budget_uf: budgetUf,
+          progress_percentage: progressPercentage
         }, { onConflict: "contract_id,task_number" });
       }
 

@@ -17,6 +17,7 @@ import {
 import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ContractDetailProps {
   contractId: string;
@@ -40,6 +41,37 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       toast.success('Documento descargado');
     } catch (error) {
       toast.error('Error al descargar documento');
+    }
+  };
+
+  const handleDeleteEDP = async (documentId: string, edpNumber: number) => {
+    if (!confirm(`¿Estás seguro de eliminar el EDP #${edpNumber}? Esta acción también eliminará los datos asociados.`)) {
+      return;
+    }
+
+    try {
+      const { error: docError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', documentId);
+
+      if (docError) throw docError;
+
+      const { error: edpError } = await supabase
+        .from('payment_states')
+        .delete()
+        .eq('contract_id', contractId)
+        .eq('edp_number', edpNumber);
+
+      if (edpError) throw edpError;
+
+      toast.success('EDP eliminado correctamente');
+      
+      // Refresh contract metrics
+      await supabase.rpc('refresh_contract_metrics', { contract_code: CONTRACT_CODE });
+    } catch (error) {
+      console.error('Error deleting EDP:', error);
+      toast.error('Error al eliminar EDP');
     }
   };
 
@@ -293,13 +325,25 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                           </p>
                         )}
                       </div>
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        onClick={() => handleDownload(doc.file_url)}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => handleDownload(doc.file_url)}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        {doc.extracted_data?.edp_number && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteEDP(doc.id, doc.extracted_data.edp_number)}
+                          >
+                            🗑️
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (
