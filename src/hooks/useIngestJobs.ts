@@ -32,8 +32,9 @@ export const useIngestJobs = (contractId?: string) => {
         .order("created_at", { ascending: false })
         .limit(20);
 
+      // If contractId is provided, show jobs for that contract OR jobs without contract_id
       if (contractId) {
-        query = query.eq("contract_id", contractId);
+        query = query.or(`contract_id.eq.${contractId},contract_id.is.null`);
       }
 
       const { data, error } = await query;
