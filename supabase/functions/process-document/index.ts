@@ -185,7 +185,7 @@ serve(async (req) => {
         "Accept": "application/json",
       },
       body: JSON.stringify({
-        "url": urlData.signedUrl,
+        "input_url": urlData.signedUrl,
         "parsing_instruction": "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.",
         "result_type": "json",
         "fast_mode": false,
