@@ -1,4 +1,4 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2, Upload } from "lucide-react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2, Upload, CheckCheck } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -15,6 +15,7 @@ interface ContractDashboardProps {
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const { data: contractsData, isLoading, refetch } = useContracts();
 
   const handleProcessDocuments = async () => {
@@ -48,6 +49,34 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       toast.error("Error al procesar documentos: " + (error as Error).message);
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleVerifyContract = async () => {
+    setIsVerifying(true);
+    toast.info("Verificando datos del contrato Dominga...");
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('verify-contract', {
+        body: { contract_code: 'AIPD-CSI001-1000-MN-0001' }
+      });
+      
+      if (error) throw error;
+      
+      console.log('Verification result:', data);
+      
+      if (data?.status === 'PASS') {
+        toast.success(`✅ Verificación EXITOSA: ${data.summary.pass} checks pasaron`);
+      } else {
+        toast.error(`❌ Verificación FALLÓ: ${data.summary.fail} checks fallaron de ${data.summary.pass + data.summary.fail} totales`);
+        console.log('Failed checks:', data.checks?.filter((c: any) => c.status === 'FAIL'));
+      }
+      
+    } catch (error) {
+      console.error('Error verifying contract:', error);
+      toast.error("Error al verificar contrato: " + (error as Error).message);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
@@ -137,15 +166,26 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
             Gestión inteligente de contratos mineros con IA
           </p>
         </div>
-        <Button 
-          onClick={handleProcessDocuments}
-          disabled={isProcessing}
-          variant="outline"
-          className="gap-2"
-        >
-          <Upload className="h-4 w-4" />
-          {isProcessing ? "Procesando..." : "Procesar PDFs de Storage"}
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={handleVerifyContract}
+            disabled={isVerifying}
+            variant="outline"
+            className="gap-2"
+          >
+            <CheckCheck className="h-4 w-4" />
+            {isVerifying ? "Verificando..." : "Verificar Datos"}
+          </Button>
+          <Button 
+            onClick={handleProcessDocuments}
+            disabled={isProcessing}
+            variant="outline"
+            className="gap-2"
+          >
+            <Upload className="h-4 w-4" />
+            {isProcessing ? "Procesando..." : "Procesar PDFs"}
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}
