@@ -568,50 +568,6 @@ export type Database = {
           },
         ]
       }
-      contract_tasks: {
-        Row: {
-          budget_uf: number | null
-          contract_id: string
-          created_at: string | null
-          id: string
-          progress_percentage: number | null
-          spent_uf: number | null
-          task_name: string
-          task_number: string
-          updated_at: string | null
-        }
-        Insert: {
-          budget_uf?: number | null
-          contract_id: string
-          created_at?: string | null
-          id?: string
-          progress_percentage?: number | null
-          spent_uf?: number | null
-          task_name: string
-          task_number: string
-          updated_at?: string | null
-        }
-        Update: {
-          budget_uf?: number | null
-          contract_id?: string
-          created_at?: string | null
-          id?: string
-          progress_percentage?: number | null
-          spent_uf?: number | null
-          task_name?: string
-          task_number?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "contract_tasks_contract_id_fkey"
-            columns: ["contract_id"]
-            isOneToOne: false
-            referencedRelation: "contracts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       contract_text_chunks: {
         Row: {
           char_count: number | null

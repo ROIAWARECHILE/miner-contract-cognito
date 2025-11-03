@@ -1,14 +1,9 @@
-import { useState } from "react";
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
-import { useContractDocuments } from "@/hooks/useDocuments";
-import { useContractProgress } from "@/hooks/useContractProgress";
-import { format } from "date-fns";
 import {
   AreaChart,
   Area,
@@ -25,9 +20,6 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const { data: documents, isLoading: documentsLoading } = useContractDocuments(contractId);
-  const { data: progress, isLoading: progressLoading } = useContractProgress(contractId);
   // Mock data for S-curve
   const progressData = [
     { month: "Jul", planned: 5, actual: 5 },
@@ -39,26 +31,18 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { month: "Ene", planned: 100, actual: 0 },
   ];
 
-  // Use real tasks if available, otherwise mock data
-  const tasks = progress?.tasks.length 
-    ? progress.tasks.map(t => ({
-        name: t.task_name,
-        budget: Number(t.budget_uf) || 0,
-        spent: Number(t.spent_uf) || 0,
-        progress: t.progress_percentage || 0
-      }))
-    : [
-        { name: "Recopilación y análisis de información", budget: 507, spent: 147.85, progress: 29 },
-        { name: "Visita a terreno", budget: 216, spent: 0, progress: 0 },
-        { name: "Actualización del estudio hidrológico", budget: 863, spent: 50.31, progress: 6 },
-        { name: "Revisión experta del Modelo Hidrogeológico", budget: 256, spent: 0, progress: 0 },
-        { name: "Actualización y calibración del MN", budget: 843, spent: 0, progress: 0 },
-        { name: "Análisis de condiciones desfavorables", budget: 213, spent: 0, progress: 0 },
-        { name: "Simulaciones predictivas", budget: 423, spent: 0, progress: 0 },
-        { name: "Asesoría Técnica y Análisis", budget: 580, spent: 0, progress: 0 },
-        { name: "Reuniones y presentaciones", budget: 386, spent: 11.66, progress: 3 },
-        { name: "Costos Administración (5%)", budget: 214, spent: 0, progress: 0 },
-      ];
+  const tasks = [
+    { name: "Recopilación y análisis de información", budget: 507, spent: 147.85, progress: 29 },
+    { name: "Visita a terreno", budget: 216, spent: 0, progress: 0 },
+    { name: "Actualización del estudio hidrológico", budget: 863, spent: 50.31, progress: 6 },
+    { name: "Revisión experta del Modelo Hidrogeológico", budget: 256, spent: 0, progress: 0 },
+    { name: "Actualización y calibración del MN", budget: 843, spent: 0, progress: 0 },
+    { name: "Análisis de condiciones desfavorables", budget: 213, spent: 0, progress: 0 },
+    { name: "Simulaciones predictivas", budget: 423, spent: 0, progress: 0 },
+    { name: "Asesoría Técnica y Análisis", budget: 580, spent: 0, progress: 0 },
+    { name: "Reuniones y presentaciones", budget: 386, spent: 11.66, progress: 3 },
+    { name: "Costos Administración (5%)", budget: 214, spent: 0, progress: 0 },
+  ];
 
   const team = [
     { name: "José Luis Delgado", role: "Líder de Proyecto", specialty: "Hidrogeólogo Principal" },
@@ -99,9 +83,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </div>
           </div>
           <div className="text-right">
-            <div className="text-5xl font-bold text-gradient mb-1">
-              {progressLoading ? <Loader2 className="w-12 h-12 animate-spin" /> : `${progress?.avgProgress || 5}%`}
-            </div>
+            <div className="text-5xl font-bold text-gradient mb-1">5%</div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
           </div>
         </div>
@@ -109,27 +91,19 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="grid grid-cols-4 gap-6">
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Presupuesto Total</p>
-            <p className="text-2xl font-bold">
-              {progressLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `${progress?.totalBudget?.toFixed(2) || '4,501'} UF`}
-            </p>
+            <p className="text-2xl font-bold">4,501 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Gastado</p>
-            <p className="text-2xl font-bold text-primary">
-              {progressLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `${progress?.totalSpent?.toFixed(2) || '209.81'} UF`}
-            </p>
+            <p className="text-2xl font-bold text-primary">209.81 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Disponible</p>
-            <p className="text-2xl font-bold text-success">
-              {progressLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `${progress?.available?.toFixed(2) || '4,291.19'} UF`}
-            </p>
+            <p className="text-2xl font-bold text-success">4,291.19 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <p className="text-sm text-muted-foreground mb-1">Documentos Cargados</p>
-            <p className="text-2xl font-bold">
-              {documentsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (documents?.length || 0)}
-            </p>
+            <p className="text-sm text-muted-foreground mb-1">EDPs Pagados</p>
+            <p className="text-2xl font-bold">1 de 10</p>
           </div>
         </div>
       </div>
@@ -233,63 +207,11 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
 
         <TabsContent value="documents">
           <Card className="border-transparent shadow-md">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader>
               <CardTitle>Documentos del Contrato</CardTitle>
-              <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-2">
-                <Upload className="w-4 h-4" />
-                Cargar Documento
-              </Button>
             </CardHeader>
             <CardContent>
-              {documentsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                </div>
-              ) : documents && documents.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-3 px-4 text-sm font-medium">Archivo</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium">Tipo</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium">Fecha</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium">Tamaño</th>
-                        <th className="text-left py-3 px-4 text-sm font-medium">Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {documents.map((doc) => (
-                        <tr key={doc.id} className="border-b hover:bg-muted/50 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              <FileText className="w-5 h-5 text-primary" />
-                              <span className="font-medium">{doc.filename}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <Badge variant="secondary">{doc.doc_type}</Badge>
-                          </td>
-                          <td className="py-3 px-4 text-sm text-muted-foreground">
-                            {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
-                          </td>
-                          <td className="py-3 px-4 text-sm text-muted-foreground">
-                            {doc.file_size ? `${(doc.file_size / 1024 / 1024).toFixed(2)} MB` : '-'}
-                          </td>
-                          <td className="py-3 px-4">
-                            <Badge variant="outline" className="text-green-600 border-green-600">
-                              Procesado
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-8">
-                  No hay documentos cargados. Haz clic en "Cargar Documento" para agregar uno.
-                </p>
-              )}
+              <p className="text-muted-foreground">Documentos cargados y gestionados con IA...</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -329,12 +251,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </Card>
         </TabsContent>
       </Tabs>
-
-      <DocumentUploadDialog 
-        open={showUploadDialog} 
-        onOpenChange={setShowUploadDialog}
-        contractId={contractId}
-      />
     </div>
   );
 };
