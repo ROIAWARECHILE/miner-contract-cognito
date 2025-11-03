@@ -12,6 +12,8 @@ const EXTRACTION_PROMPTS: Record<string, string> = {
 
 Parse the following JSON extracted from a PDF and return normalized JSON with numeric fields for the payment statement.
 
+CRITICAL: Extract the COMPLETE task names exactly as they appear in the document, including all descriptive text. Do not abbreviate or summarize task names.
+
 Target schema:
 {
   "contract_code": "AIPD-CSI001-1000-MN-0001",
@@ -25,14 +27,20 @@ Target schema:
   "contract_progress_pct": 14,
   "tasks_executed": [
     {
-      "task_number": "1.1",
-      "name": "Recopilación y análisis de información",
+      "task_number": "1.0",
+      "name": "Recopilación y análisis de la información hidrológica, hidrogeológica y ambiental",
       "budget_uf": 507,
       "spent_uf": 94.63,
       "progress_pct": 19
     }
   ]
 }
+
+IMPORTANT: 
+- Extract task numbers as they appear (e.g., "1.0", "1.2", "2.0", etc.)
+- Extract FULL task names with all descriptive text
+- Convert all monetary values to numbers (remove commas, dots as thousands separators)
+- Use dots for decimal separators
 
 Return ONLY valid JSON, no markdown formatting.`,
   
@@ -387,10 +395,10 @@ serve(async (req) => {
         await supabase.from("contract_tasks").upsert({
           contract_id: contract.id,
           task_number: task.task_number,
-          name: task.name,
+          task_name: task.name,
           spent_uf: task.spent_uf,
           budget_uf: task.budget_uf,
-          progress_pct: task.progress_pct || 0
+          progress_percentage: task.progress_pct || 0
         }, { onConflict: "contract_id,task_number" });
       }
 
