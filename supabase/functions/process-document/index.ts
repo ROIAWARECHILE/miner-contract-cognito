@@ -183,44 +183,60 @@ serve(async (req) => {
 
     console.log(`[process-document] Signed URL generated:`, urlData.signedUrl.substring(0, 100) + "...");
 
-    // Step 2: Call LlamaParse
+    // Step 2: Download file from Supabase Storage and prepare for LlamaParse
     if (!llamaApiKey) {
       throw new Error("LLAMAPARSE_API_KEY not configured");
     }
 
     await supabase
       .from("document_processing_jobs")
+      .update({ progress: { step: "downloading_file", percent: 15 } })
+      .eq("id", job.id);
+
+    // Download the file from Supabase Storage
+    console.log(`[process-document] Downloading file from storage: ${storage_path}`);
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from("contracts")
+      .download(storage_path);
+
+    if (downloadError || !fileData) {
+      console.error(`[process-document] Download error:`, downloadError);
+      throw new Error(`Failed to download file: ${downloadError?.message}`);
+    }
+
+    console.log(`[process-document] File downloaded, size: ${fileData.size} bytes`);
+
+    await supabase
+      .from("document_processing_jobs")
       .update({ progress: { step: "llamaparse_submit", percent: 20 } })
       .eq("id", job.id);
 
-    const llamaRequestBody = {
-      "input_url": urlData.signedUrl,
-      "parsing_instruction": "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.",
-      "result_type": "json",
-      "fast_mode": false,
-      "do_not_cache": false,
-      "continuous_mode": true,
-      "invalidate_cache": false,
-      "skip_diagonal_text": false,
-      "page_separator": "\n\n---PAGE_BREAK---\n\n"
-    };
+    // Prepare multipart/form-data
+    const formData = new FormData();
+    formData.append("file", fileData, storage_path.split('/').pop() || "document.pdf");
+    formData.append("parsing_instruction", "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.");
+    formData.append("result_type", "json");
+    formData.append("fast_mode", "false");
+    formData.append("do_not_cache", "false");
+    formData.append("continuous_mode", "true");
+    formData.append("invalidate_cache", "false");
+    formData.append("skip_diagonal_text", "false");
+    formData.append("page_separator", "\n\n---PAGE_BREAK---\n\n");
 
-    console.log(`[process-document] Calling LlamaParse with URL:`, urlData.signedUrl.substring(0, 100) + "...");
+    console.log(`[process-document] Uploading to LlamaParse...`);
 
     const llamaResponse = await fetch("https://api.cloud.llamaindex.ai/api/parsing/upload", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${llamaApiKey}`,
         "Accept": "application/json",
-        "Content-Type": "application/json",
       },
-      body: JSON.stringify(llamaRequestBody)
+      body: formData
     });
 
     if (!llamaResponse.ok) {
       const errorText = await llamaResponse.text();
       console.error(`[process-document] LlamaParse API error (${llamaResponse.status}):`, errorText);
-      console.error(`[process-document] Request body was:`, JSON.stringify(llamaRequestBody, null, 2));
       throw new Error(`LlamaParse API error: ${llamaResponse.status} ${errorText}`);
     }
 
