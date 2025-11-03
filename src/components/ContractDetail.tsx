@@ -285,7 +285,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       <DocumentUploadDialog 
         open={showUploadDialog} 
         onOpenChange={setShowUploadDialog}
-        preSelectedContractId={contractId}
       />
     </div>
   );

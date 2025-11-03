@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, X, FileText, Loader2, Plus } from "lucide-react";
+import { Upload, X, FileText, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,46 +9,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useContracts } from "@/hooks/useContract";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DocumentUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  preSelectedContractId?: string;
 }
 
 export const DocumentUploadDialog = ({ 
   open, 
-  onOpenChange,
-  preSelectedContractId 
+  onOpenChange
 }: DocumentUploadDialogProps) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedContract, setSelectedContract] = useState<string>(preSelectedContractId || "");
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"select" | "create">("select");
-  
-  // Form for new contract
-  const [newContract, setNewContract] = useState({
-    code: "",
-    title: "",
-    type: "service",
-  });
 
   const { toast } = useToast();
-  const { data: contracts, refetch: refetchContracts } = useContracts();
+  const { refetch: refetchContracts } = useContracts();
   const { user } = useAuth();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,62 +56,11 @@ export const DocumentUploadDialog = ({
     }
   };
 
-  const createQuickContract = async () => {
-    if (!newContract.code || !newContract.title || !newContract.type) {
-      toast({
-        title: "Datos incompletos",
-        description: "Completa el código, título y tipo del contrato",
-        variant: "destructive"
-      });
-      return null;
-    }
-
-    if (!user) {
-      toast({
-        title: "Error",
-        description: "Debes iniciar sesión para crear contratos",
-        variant: "destructive"
-      });
-      return null;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('contracts')
-        .insert({
-          code: newContract.code,
-          title: newContract.title,
-          type: newContract.type as any,
-          status: 'draft' as any,
-          created_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      toast({
-        title: "Contrato creado",
-        description: "El contrato ha sido creado exitosamente",
-      });
-
-      await refetchContracts();
-      return data.id;
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "No se pudo crear el contrato",
-        variant: "destructive"
-      });
-      return null;
-    }
-  };
-
   const handleUpload = async () => {
     if (!selectedFile) {
       toast({
         title: "Archivo requerido",
-        description: "Selecciona un archivo para cargar",
+        description: "Selecciona un archivo PDF del contrato para analizar",
         variant: "destructive"
       });
       return;
@@ -147,64 +75,45 @@ export const DocumentUploadDialog = ({
       return;
     }
 
-    let contractId = selectedContract;
-
-    // If creating new contract, create it first
-    if (activeTab === "create") {
-      const newId = await createQuickContract();
-      if (!newId) return;
-      contractId = newId;
-      setSelectedContract(newId);
-    }
-
-    if (!contractId) {
-      toast({
-        title: "Contrato requerido",
-        description: "Selecciona o crea un contrato",
-        variant: "destructive"
-      });
-      return;
-    }
-
     setUploading(true);
 
     try {
-      const fileName = `${contractId}/${Date.now()}-${selectedFile.name}`;
+      // Upload file to temporary location
+      const tempFileName = `temp/${Date.now()}-${selectedFile.name}`;
       const { error: uploadError } = await supabase.storage
         .from('contract-documents')
-        .upload(fileName, selectedFile);
+        .upload(tempFileName, selectedFile);
 
       if (uploadError) throw uploadError;
 
       setUploading(false);
       setAnalyzing(true);
 
+      // Analyze document and create contract automatically
       const { data, error: functionError } = await supabase.functions.invoke('analyze-document', {
         body: {
-          contractId,
           fileName: selectedFile.name,
-          filePath: fileName
+          filePath: tempFileName
         }
       });
 
       if (functionError) throw functionError;
 
+      await refetchContracts();
+
       toast({
-        title: "Documento procesado",
-        description: "El documento ha sido cargado y analizado exitosamente",
+        title: "✅ Contrato creado exitosamente",
+        description: `Código: ${data.contract_code} - ${data.contract_title}`,
       });
 
       setSelectedFile(null);
-      setSelectedContract(preSelectedContractId || "");
-      setNewContract({ code: "", title: "", type: "service" });
-      setActiveTab("select");
       onOpenChange(false);
 
     } catch (error: any) {
       console.error('Upload error:', error);
       toast({
         title: "Error al procesar",
-        description: error.message || "No se pudo procesar el documento",
+        description: error.message || "No se pudo procesar el documento. Verifica que sea un contrato válido.",
         variant: "destructive"
       });
     } finally {
@@ -217,95 +126,20 @@ export const DocumentUploadDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Cargar Documento</DialogTitle>
+          <DialogTitle>Cargar Contrato</DialogTitle>
           <DialogDescription>
-            Selecciona o crea un contrato y sube un documento para analizar con IA
+            Sube el PDF del contrato y la IA extraerá automáticamente toda la información
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* Contract selection/creation */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">
-              Contrato
-            </label>
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "select" | "create")}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="select">Seleccionar</TabsTrigger>
-                <TabsTrigger value="create">Crear Nuevo</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="select" className="mt-3">
-                <Select value={selectedContract} onValueChange={setSelectedContract}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un contrato" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {contracts?.map((contract) => (
-                      <SelectItem key={contract.id} value={contract.id}>
-                        {contract.code} - {contract.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TabsContent>
-
-              <TabsContent value="create" className="mt-3 space-y-3">
-                <div>
-                  <Label htmlFor="new-code">Código *</Label>
-                  <Input
-                    id="new-code"
-                    placeholder="Ej: CONT-2025-001"
-                    value={newContract.code}
-                    onChange={(e) => setNewContract({ ...newContract, code: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new-title">Título *</Label>
-                  <Input
-                    id="new-title"
-                    placeholder="Ej: Contrato de Servicios"
-                    value={newContract.title}
-                    onChange={(e) => setNewContract({ ...newContract, title: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new-type">Tipo *</Label>
-                  <Select 
-                    value={newContract.type} 
-                    onValueChange={(value) => setNewContract({ ...newContract, type: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="concession">Concesión</SelectItem>
-                      <SelectItem value="service">Servicio</SelectItem>
-                      <SelectItem value="logistics">Logística</SelectItem>
-                      <SelectItem value="supply">Suministro</SelectItem>
-                      <SelectItem value="offtake">Offtake</SelectItem>
-                      <SelectItem value="joint_venture">Joint Venture</SelectItem>
-                      <SelectItem value="royalty">Regalías</SelectItem>
-                      <SelectItem value="community">Comunitario</SelectItem>
-                      <SelectItem value="environmental">Ambiental</SelectItem>
-                      <SelectItem value="other">Otro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-
+        <div className="space-y-6">
           {/* File input */}
           <div>
-            <label className="text-sm font-medium mb-2 block">
-              Archivo
-            </label>
-            <div className="border-2 border-dashed rounded-lg p-6 text-center hover:border-primary transition-colors cursor-pointer">
+            <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
               <input
                 type="file"
                 onChange={handleFileSelect}
-                accept=".pdf,.doc,.docx"
+                accept=".pdf"
                 className="hidden"
                 id="file-upload"
                 disabled={uploading || analyzing}
@@ -313,7 +147,7 @@ export const DocumentUploadDialog = ({
               <label htmlFor="file-upload" className="cursor-pointer">
                 {selectedFile ? (
                   <div className="flex items-center justify-center gap-2">
-                    <FileText className="w-5 h-5 text-primary" />
+                    <FileText className="w-6 h-6 text-primary" />
                     <span className="text-sm font-medium">{selectedFile.name}</span>
                     <Button
                       type="button"
@@ -329,26 +163,41 @@ export const DocumentUploadDialog = ({
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      Click para seleccionar o arrastra un archivo
+                    <Upload className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
+                    <p className="text-base font-medium mb-1">
+                      Click para seleccionar o arrastra el archivo
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      PDF o Word (máx. 20MB)
+                    <p className="text-sm text-muted-foreground">
+                      PDF del contrato (máx. 20MB)
                     </p>
                   </>
                 )}
               </label>
             </div>
+
+            {selectedFile && !uploading && !analyzing && (
+              <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  🤖 La IA analizará el documento y extraerá automáticamente:
+                </p>
+                <ul className="text-xs text-muted-foreground mt-2 space-y-1 list-disc list-inside">
+                  <li>Código y título del contrato</li>
+                  <li>Tipo, empresa, activo y ubicación</li>
+                  <li>Fechas de inicio y fin</li>
+                  <li>Valor del contrato y moneda</li>
+                  <li>Obligaciones y alertas</li>
+                </ul>
+              </div>
+            )}
           </div>
 
           {/* Status message */}
           {(uploading || analyzing) && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-4 rounded-lg">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
               <span>
                 {uploading && "Subiendo documento..."}
-                {analyzing && "Analizando con IA..."}
+                {analyzing && "Analizando contrato con IA... Esto puede tardar hasta 30 segundos."}
               </span>
             </div>
           )}
@@ -374,7 +223,7 @@ export const DocumentUploadDialog = ({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  {activeTab === "create" ? "Crear y Cargar" : "Cargar y Analizar"}
+                  Analizar y Crear Contrato
                 </>
               )}
             </Button>

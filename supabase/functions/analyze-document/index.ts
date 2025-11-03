@@ -13,9 +13,9 @@ serve(async (req) => {
   }
 
   try {
-    const { contractId, fileName, filePath } = await req.json();
+    const { fileName, filePath } = await req.json();
     
-    console.log('Starting document analysis:', { contractId, fileName, filePath });
+    console.log('Starting document analysis:', { fileName, filePath });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -61,24 +61,31 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `Eres un experto en análisis de contratos mineros. Analiza el documento y extrae:
-1. Tipo de documento (contrato, adenda, reporte, etc.)
-2. Fechas clave (inicio, fin, hitos importantes)
-3. Valores monetarios y términos de pago
-4. Obligaciones y responsabilidades
-5. Alertas o riesgos potenciales
-6. Partes involucradas
+            content: `Eres un experto en análisis de contratos mineros. Analiza el documento PDF y extrae TODA la información del contrato.
 
-Responde en JSON con esta estructura:
+IMPORTANTE: Debes extraer la información completa para crear automáticamente el contrato en el sistema.
+
+Responde en JSON con esta estructura EXACTA:
 {
-  "document_type": "tipo",
-  "parties": ["parte1", "parte2"],
-  "key_dates": [{"type": "tipo", "date": "YYYY-MM-DD", "description": "desc"}],
-  "monetary_values": [{"amount": 0, "currency": "USD", "description": "desc"}],
-  "obligations": [{"type": "payment|reporting|delivery|other", "description": "desc", "due_date": "YYYY-MM-DD", "priority": "high|medium|low"}],
-  "alerts": [{"priority": "high|medium|low", "title": "título", "description": "desc"}],
-  "summary": "resumen ejecutivo"
-}`
+  "contract_code": "código único del contrato (busca en encabezado o portada)",
+  "contract_title": "título completo del contrato",
+  "contract_type": "uno de: concession|service|logistics|supply|offtake|joint_venture|royalty|community|environmental|other",
+  "company_name": "nombre de la empresa contratista principal",
+  "asset_name": "nombre del activo, proyecto o mina",
+  "start_date": "YYYY-MM-DD (fecha de inicio del contrato)",
+  "end_date": "YYYY-MM-DD (fecha de fin o vencimiento)",
+  "contract_value": 0 (valor total del contrato en números),
+  "currency": "USD|CLP|EUR|UF (moneda del contrato)",
+  "country": "país donde se ejecuta el contrato",
+  "mineral": "mineral o recurso principal (cobre, oro, litio, etc.)",
+  "summary": "resumen ejecutivo del contrato en 2-3 párrafos",
+  "parties": ["empresa1", "empresa2"],
+  "key_dates": [{"type": "inicio|fin|hito|renovacion", "date": "YYYY-MM-DD", "description": "descripción"}],
+  "obligations": [{"type": "payment|reporting|delivery|other", "description": "obligación", "due_date": "YYYY-MM-DD", "priority": "high|medium|low"}],
+  "alerts": [{"priority": "high|medium|low", "title": "título", "description": "descripción del riesgo o alerta"}]
+}
+
+Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéricos.`
           },
           {
             role: 'user',
@@ -112,14 +119,104 @@ Responde en JSON con esta estructura:
     
     // Parse JSON from AI response
     const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-    const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : { summary: analysisText };
+    const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    
+    if (!analysis || !analysis.contract_code || !analysis.contract_title) {
+      throw new Error('No se pudo extraer la información del contrato. Asegúrate de subir un documento válido.');
+    }
+
+    console.log('Contract data extracted:', {
+      code: analysis.contract_code,
+      title: analysis.contract_title,
+      type: analysis.contract_type
+    });
+
+    // Create or get company
+    let companyId = null;
+    if (analysis.company_name) {
+      const { data: existingCompany } = await supabase
+        .from('companies')
+        .select('id')
+        .ilike('name', analysis.company_name)
+        .single();
+
+      if (existingCompany) {
+        companyId = existingCompany.id;
+      } else {
+        const { data: newCompany, error: companyError } = await supabase
+          .from('companies')
+          .insert({ name: analysis.company_name })
+          .select('id')
+          .single();
+        
+        if (!companyError && newCompany) {
+          companyId = newCompany.id;
+        }
+      }
+    }
+
+    // Create or get asset
+    let assetId = null;
+    if (analysis.asset_name) {
+      const { data: existingAsset } = await supabase
+        .from('assets')
+        .select('id')
+        .ilike('name', analysis.asset_name)
+        .single();
+
+      if (existingAsset) {
+        assetId = existingAsset.id;
+      } else {
+        const { data: newAsset, error: assetError } = await supabase
+          .from('assets')
+          .insert({
+            name: analysis.asset_name,
+            asset_type: 'mine',
+            country: analysis.country
+          })
+          .select('id')
+          .single();
+        
+        if (!assetError && newAsset) {
+          assetId = newAsset.id;
+        }
+      }
+    }
+
+    // Create contract with all extracted data
+    const { data: contract, error: contractError } = await supabase
+      .from('contracts')
+      .insert({
+        code: analysis.contract_code,
+        title: analysis.contract_title,
+        type: analysis.contract_type || 'other',
+        status: 'active',
+        company_id: companyId,
+        asset_id: assetId,
+        start_date: analysis.start_date,
+        end_date: analysis.end_date,
+        contract_value: analysis.contract_value,
+        currency: analysis.currency || 'USD',
+        country: analysis.country,
+        mineral: analysis.mineral,
+        summary_ai: analysis.summary
+      })
+      .select()
+      .single();
+
+    if (contractError) {
+      console.error('Error creating contract:', contractError);
+      throw new Error(`No se pudo crear el contrato: ${contractError.message}`);
+    }
+
+    console.log('Contract created:', contract.id);
 
     // Store AI analysis
     const { data: aiAnalysis, error: aiError } = await supabase
       .from('ai_analyses')
       .insert({
-        contract_id: contractId,
-        analysis_type: 'document_upload',
+        contract_id: contract.id,
+        analysis_type: 'full_contract',
         raw_output_json: analysis,
         structured_output: analysis,
         model_used: 'google/gemini-2.5-flash',
@@ -132,14 +229,13 @@ Responde en JSON con esta estructura:
 
     if (aiError) {
       console.error('Error storing AI analysis:', aiError);
-      throw aiError;
     }
 
     // Store document record
     const { data: document, error: docError } = await supabase
       .from('documents')
       .insert({
-        contract_id: contractId,
+        contract_id: contract.id,
         filename: fileName,
         file_url: filePath,
         doc_type: 'original',
@@ -150,13 +246,12 @@ Responde en JSON con esta estructura:
 
     if (docError) {
       console.error('Error storing document:', docError);
-      throw docError;
     }
 
     // Create obligations from analysis
     if (analysis.obligations && Array.isArray(analysis.obligations)) {
       const obligations = analysis.obligations.map((obl: any) => ({
-        contract_id: contractId,
+        contract_id: contract.id,
         type: obl.type || 'other',
         description: obl.description,
         due_date: obl.due_date,
@@ -181,7 +276,7 @@ Responde en JSON con esta estructura:
     if (analysis.alerts && Array.isArray(analysis.alerts)) {
       const alerts = analysis.alerts.map((alert: any) => ({
         entity_type: 'contract',
-        entity_id: contractId,
+        entity_id: contract.id,
         title: alert.title,
         alert_date: new Date().toISOString().split('T')[0],
         priority: alert.priority || 'medium',
@@ -207,9 +302,12 @@ Responde en JSON con esta estructura:
     return new Response(
       JSON.stringify({
         success: true,
+        contract_id: contract.id,
+        contract_code: contract.code,
+        contract_title: contract.title,
         analysis,
-        documentId: document.id,
-        analysisId: aiAnalysis.id
+        documentId: document?.id,
+        analysisId: aiAnalysis?.id
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
