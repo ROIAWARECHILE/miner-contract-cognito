@@ -140,10 +140,15 @@ export const ContractFormDialog = ({ open, onOpenChange }: ContractFormDialogPro
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="concession">Concesión</SelectItem>
-                  <SelectItem value="services">Servicios</SelectItem>
+                  <SelectItem value="service">Servicio</SelectItem>
                   <SelectItem value="logistics">Logística</SelectItem>
                   <SelectItem value="supply">Suministro</SelectItem>
-                  <SelectItem value="lease">Arriendo</SelectItem>
+                  <SelectItem value="offtake">Offtake</SelectItem>
+                  <SelectItem value="joint_venture">Joint Venture</SelectItem>
+                  <SelectItem value="royalty">Regalías</SelectItem>
+                  <SelectItem value="community">Comunitario</SelectItem>
+                  <SelectItem value="environmental">Ambiental</SelectItem>
+                  <SelectItem value="other">Otro</SelectItem>
                 </SelectContent>
               </Select>
             </div>
