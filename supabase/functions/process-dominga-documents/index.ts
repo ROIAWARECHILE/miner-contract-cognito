@@ -472,11 +472,18 @@ async function processExtractedData(
         log.push({ type: 'ingest', message: `Created ${extractedData.tasks.length} tasks` });
       }
       
-      // Store kpis_plan in metadata if present
+      // Store kpis_plan in metadata if present (clean data to avoid circular refs)
       if (extractedData.kpis_plan) {
+        const cleanMetadata = {
+          budget_uf: extractedData.budget_uf,
+          client: extractedData.client,
+          contractor: extractedData.contractor,
+          kpis_plan: extractedData.kpis_plan,
+          title: extractedData.title
+        };
         await supabaseClient
           .from('contracts')
-          .update({ metadata: { ...extractedData, budget_uf: extractedData.budget_uf } })
+          .update({ metadata: cleanMetadata })
           .eq('id', contractId);
       }
     } else {
@@ -485,6 +492,14 @@ async function processExtractedData(
 
     // Process EDP
     if (documentType === 'edp') {
+      // Clean data to avoid circular references - only store essential fields
+      const cleanEdpData = {
+        tasks_executed: extractedData.tasks_executed || [],
+        confidence_by_field: extractedData.confidence_by_field || {},
+        low_confidence_fields: extractedData.low_confidence_fields || [],
+        provenance: extractedData.provenance
+      };
+      
       const { error: edpError } = await supabaseClient
         .from('payment_states')
         .upsert({
@@ -497,7 +512,7 @@ async function processExtractedData(
           uf_rate: extractedData.uf_rate,
           amount_clp: extractedData.amount_clp,
           status: extractedData.status || 'approved',
-          data: extractedData
+          data: cleanEdpData
         }, { onConflict: 'contract_id,edp_number' });
 
       if (edpError) throw edpError;
@@ -520,12 +535,21 @@ async function processExtractedData(
     }
 
     // Record document with extracted data and provenance
+    const cleanExtractedData = {
+      document_type: extractedData.document_type,
+      confidence_by_field: extractedData.confidence_by_field || {},
+      low_confidence_fields: extractedData.low_confidence_fields || [],
+      provenance: extractedData.provenance
+    };
+    
     await supabaseClient.from('documents').upsert({
       contract_id: contractId,
       filename: filename,
       file_url: filePath,
       doc_type: 'original',
-      checksum: filePath
+      checksum: filePath,
+      extracted_data: cleanExtractedData,
+      processing_status: 'completed'
     }, { onConflict: 'contract_id,filename' });
     
     log.push({ type: 'ingest', message: `Recorded document: ${filename}` });
