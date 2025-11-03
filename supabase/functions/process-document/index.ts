@@ -1006,7 +1006,25 @@ serve(async (req) => {
         data: structured
       }, { onConflict: "contract_id,edp_number" });
 
-      // ✅ FASE 2: Recalcular contract_tasks desde TODOS los EDPs (Opción B - más segura)
+      // ✅ Validar task_numbers conocidos del contrato
+      const validTaskNumbers = new Set(['1', '1.2', '2', '3', '4', '5', '6', '7', '8', '9']);
+      const unknownTasks: string[] = [];
+
+      for (const task of structured.tasks_executed || []) {
+        const normalizedNum = normalizeTaskNumber(task.task_number || '', task.name || '');
+        if (normalizedNum && !validTaskNumbers.has(normalizedNum)) {
+          unknownTasks.push(`${task.task_number} (${task.name})`);
+        }
+      }
+
+      if (unknownTasks.length > 0) {
+        console.warn(
+          `[process-document] ⚠️ EDP #${structured.edp_number} contains ${unknownTasks.length} unknown task(s): ` +
+          unknownTasks.join(', ')
+        );
+      }
+
+      // ✅ FASE 2: Recalcular contract_tasks desde TODOS los EDPs
       console.log(`[process-document] Recalculating contract_tasks from ALL EDPs for contract ${contract.id}...`);
       
       // 1. Obtener TODOS los EDPs del contrato (approved + submitted)
@@ -1047,11 +1065,8 @@ serve(async (req) => {
       }
       
       // 3. Actualizar contract_tasks con totales acumulados
+      // El trigger automáticamente calculará progress_percentage
       for (const [taskNumber, totals] of Object.entries(taskAccumulator)) {
-        const progressPct = totals.budget_uf > 0 
-          ? Math.round((totals.spent_uf / totals.budget_uf) * 100) 
-          : 0;
-        
         const { error: taskError } = await supabase
           .from("contract_tasks")
           .upsert({
@@ -1060,7 +1075,7 @@ serve(async (req) => {
             task_name: totals.name,
             budget_uf: totals.budget_uf,
             spent_uf: totals.spent_uf,
-            progress_percentage: progressPct,
+            // progress_percentage se calcula automáticamente por el trigger
           }, {
             onConflict: "contract_id,task_number",
             ignoreDuplicates: false
@@ -1068,14 +1083,23 @@ serve(async (req) => {
         
         if (taskError) {
           console.error(`[process-document] Error upserting task ${taskNumber}:`, taskError);
+          
+          // ✅ Lanzar error crítico para constraints
+          if (taskError.code === '23514' || taskError.code === '23505') {
+            throw new Error(
+              `Failed to upsert task ${taskNumber}: ${taskError.message}. ` +
+              `This indicates a database constraint violation.`
+            );
+          }
         }
       }
       
       console.log(`[process-document] Successfully recalculated ${Object.keys(taskAccumulator).length} tasks from ${allEdps?.length || 0} EDPs`);
 
       // Refresh contract metrics
+      // ✅ Usar contract_code (string) en vez de p_contract_id (uuid)
       await supabase.rpc("refresh_contract_metrics", { 
-        p_contract_id: contract.id 
+        contract_code: contract.code
       });
 
       console.log(`[process-document] Payment state and tasks upserted for contract ${contract.code}`);
