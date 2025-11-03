@@ -1919,6 +1919,14 @@ export type Database = {
         Args: { contract_code: string }
         Returns: undefined
       }
+      subtract_task_spent: {
+        Args: {
+          p_amount_to_subtract: number
+          p_contract_id: string
+          p_task_number: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       alert_priority: "low" | "medium" | "high" | "critical"

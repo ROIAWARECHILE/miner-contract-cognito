@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +29,7 @@ const CONTRACT_CODE = "AIPD-CSI001-1000-MN-0001";
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useContractAnalytics(CONTRACT_CODE);
   const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useContractTasks(CONTRACT_CODE);
-  const { data: payments = [], isLoading: paymentsLoading } = usePaymentStates(CONTRACT_CODE);
+  const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(CONTRACT_CODE);
   const { data: documents = [] } = useContractDocuments(contractId);
   
   // Enable real-time updates
@@ -53,11 +53,49 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   };
 
   const handleDeleteEDP = async (documentId: string, edpNumber: number) => {
-    if (!confirm(`¿Estás seguro de eliminar el EDP #${edpNumber}? Esta acción también eliminará los datos asociados.`)) {
-      return;
-    }
-
     try {
+      // 1. Obtener el EDP completo con sus tareas
+      const { data: edp, error: fetchError } = await supabase
+        .from('payment_states')
+        .select('*')
+        .eq('contract_id', contractId)
+        .eq('edp_number', edpNumber)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!edp) throw new Error('EDP no encontrado');
+
+      const tasksExecuted = (edp.data as any)?.tasks_executed || [];
+      const tasksCount = tasksExecuted.length;
+
+      // Mostrar confirmación detallada
+      if (!confirm(
+        `¿Estás seguro de eliminar el EDP #${edpNumber}?\n\n` +
+        `Esta acción eliminará:\n` +
+        `✗ Estado de pago (${edp.amount_uf} UF)\n` +
+        `✗ Datos de ${tasksCount} tarea${tasksCount !== 1 ? 's' : ''} ejecutada${tasksCount !== 1 ? 's' : ''}\n` +
+        `✗ Documento PDF asociado\n` +
+        `✗ Recalculará todas las métricas del contrato\n\n` +
+        `⚠️ Esta acción NO se puede deshacer.`
+      )) {
+        return;
+      }
+
+      // 2. Restar spent_uf de cada tarea en contract_tasks
+      for (const task of tasksExecuted) {
+        const { error: subtractError } = await supabase.rpc('subtract_task_spent', {
+          p_contract_id: contractId,
+          p_task_number: task.task_number,
+          p_amount_to_subtract: parseFloat(task.spent_uf) || 0
+        });
+
+        if (subtractError) {
+          console.error(`Error al restar tarea ${task.task_number}:`, subtractError);
+          throw subtractError;
+        }
+      }
+
+      // 3. Eliminar el documento asociado
       const { error: docError } = await supabase
         .from('documents')
         .delete()
@@ -65,21 +103,28 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
 
       if (docError) throw docError;
 
+      // 4. Eliminar el payment_state
       const { error: edpError } = await supabase
         .from('payment_states')
         .delete()
-        .eq('contract_id', contractId)
-        .eq('edp_number', edpNumber);
+        .eq('id', edp.id);
 
       if (edpError) throw edpError;
 
-      toast.success('EDP eliminado correctamente');
-      
-      // Refresh contract metrics
+      // 5. Refrescar métricas del contrato
       await supabase.rpc('refresh_contract_metrics', { contract_code: CONTRACT_CODE });
+
+      // 6. Refrescar datos en la UI
+      await Promise.all([
+        refetchAnalytics(),
+        refetchTasks(),
+        refetchPayments()
+      ]);
+
+      toast.success(`✓ EDP #${edpNumber} eliminado correctamente`);
     } catch (error) {
       console.error('Error deleting EDP:', error);
-      toast.error('Error al eliminar EDP');
+      toast.error('Error al eliminar EDP: ' + (error as Error).message);
     }
   };
 
@@ -404,6 +449,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                         <th className="p-3 text-sm font-medium text-muted-foreground text-right">Valor UF</th>
                         <th className="p-3 text-sm font-medium text-muted-foreground text-right">Monto CLP</th>
                         <th className="p-3 text-sm font-medium text-muted-foreground text-center">Estado</th>
+                        <th className="p-3 text-sm font-medium text-muted-foreground text-center">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -429,6 +475,24 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                               {edp.status === 'approved' ? 'Aprobado' : edp.status}
                             </Badge>
                           </td>
+                          <td className="p-3 text-center">
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => {
+                                // Buscar el documento asociado a este EDP
+                                const doc = documents.find((d: any) => d.extracted_data?.edp_number === edp.edp_number);
+                                if (doc) {
+                                  handleDeleteEDP(doc.id, edp.edp_number);
+                                } else {
+                                  toast.error('No se encontró el documento asociado a este EDP');
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                       {payments.length > 1 && (
@@ -445,6 +509,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                               sum + (typeof edp.amount_clp === 'number' ? edp.amount_clp : 0), 0
                             ).toLocaleString('es-CL')}
                           </td>
+                          <td className="p-3"></td>
                           <td className="p-3"></td>
                         </tr>
                       )}
