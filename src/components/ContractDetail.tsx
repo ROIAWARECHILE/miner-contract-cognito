@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +27,8 @@ interface ContractDetailProps {
 const CONTRACT_CODE = "AIPD-CSI001-1000-MN-0001";
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  const { data: analytics, isLoading: analyticsLoading } = useContractAnalytics(CONTRACT_CODE);
-  const { data: tasks = [], isLoading: tasksLoading } = useContractTasks(CONTRACT_CODE);
+  const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useContractAnalytics(CONTRACT_CODE);
+  const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useContractTasks(CONTRACT_CODE);
   const { data: payments = [], isLoading: paymentsLoading } = usePaymentStates(CONTRACT_CODE);
   const { data: documents = [] } = useContractDocuments(contractId);
   
@@ -72,6 +72,22 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     } catch (error) {
       console.error('Error deleting EDP:', error);
       toast.error('Error al eliminar EDP');
+    }
+  };
+
+  const handleRefreshMetrics = async () => {
+    try {
+      const { error } = await supabase.rpc('refresh_contract_metrics', {
+        contract_code: CONTRACT_CODE
+      });
+      if (error) throw error;
+      toast.success('Métricas actualizadas correctamente');
+      // Refrescar datos
+      refetchAnalytics();
+      refetchTasks();
+    } catch (error) {
+      console.error('Error refreshing metrics:', error);
+      toast.error('Error al actualizar métricas');
     }
   };
 
@@ -143,11 +159,20 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <span>Inicio: 21 Jul 2025</span>
             </div>
           </div>
-          <div className="text-right">
+          <div className="text-right space-y-3">
             <div className="text-5xl font-bold text-gradient mb-1">
               {analytics?.overall_progress_pct.toFixed(0)}%
             </div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefreshMetrics}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Actualizar Métricas
+            </Button>
           </div>
         </div>
 
