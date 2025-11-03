@@ -40,6 +40,8 @@ serve(async (req) => {
 
     const { storage_path, etag, file_hash, project_prefix, contract_id, document_type } = await req.json();
 
+    console.log('ingest-enqueue received:', { storage_path, contract_id, document_type, project_prefix });
+
     if (!storage_path || !project_prefix) {
       return new Response(
         JSON.stringify({ error: 'storage_path and project_prefix are required' }),
@@ -47,9 +49,18 @@ serve(async (req) => {
       );
     }
 
-    // Auto-detect document_type from storage_path if not provided
+    if (!contract_id) {
+      return new Response(
+        JSON.stringify({ error: 'contract_id is required' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Auto-detect document_type from storage_path (FORCE detection from path, ignore what was sent)
     // Path format: "dominga/edp/filename.pdf" -> type = "edp"
-    const detectedDocType = document_type || storage_path.split('/')[1] || 'contract';
+    const pathParts = storage_path.split('/');
+    const detectedDocType = pathParts.length >= 2 ? pathParts[1] : 'contract';
+    console.log('Detected document type from path:', detectedDocType);
 
     // Create job (on conflict do nothing due to unique constraint)
     const { data: job, error: jobError } = await supabase
@@ -95,15 +106,25 @@ serve(async (req) => {
       meta: { project_prefix, etag, file_hash }
     });
 
-    // Start background processing immediately (no await)
-    // @ts-ignore - EdgeRuntime is available in Deno Deploy
-    if (typeof EdgeRuntime !== 'undefined') {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(processJobInBackground(job.id, supabaseUrl, supabaseKey));
-    } else {
-      // Fallback for local development
-      processJobInBackground(job.id, supabaseUrl, supabaseKey).catch(console.error);
+    // Start background processing immediately
+    console.log('Starting background processing for job:', job.id);
+    
+    // Try EdgeRuntime.waitUntil first, but also start the process directly
+    try {
+      // @ts-ignore - EdgeRuntime is available in Deno Deploy
+      if (typeof EdgeRuntime !== 'undefined') {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(processJobInBackground(job.id, supabaseUrl, supabaseKey));
+        console.log('EdgeRuntime.waitUntil scheduled');
+      }
+    } catch (e) {
+      console.error('EdgeRuntime.waitUntil failed:', e);
     }
+    
+    // Also start processing directly (don't await)
+    processJobInBackground(job.id, supabaseUrl, supabaseKey)
+      .then(() => console.log('Direct background processing completed'))
+      .catch(err => console.error('Direct background processing failed:', err));
 
     return new Response(
       JSON.stringify({ 

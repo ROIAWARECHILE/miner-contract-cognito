@@ -44,6 +44,11 @@ export default function DocumentUploader({
     }
   }, [preselectedContractId]);
 
+  React.useEffect(() => {
+    console.log('DocumentUploader - contractId:', contractId);
+    console.log('DocumentUploader - preselectedContractId:', preselectedContractId);
+  }, [contractId, preselectedContractId]);
+
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
     const list = Array.from(e.target.files).filter(f => {
@@ -93,7 +98,14 @@ export default function DocumentUploader({
         setLog(l => [`✅ Subido: ${safeName} → ${path}`, ...l]);
 
         // Enqueue ingestion job with document type
-        const { error: enqueueErr } = await supabase.functions.invoke('ingest-enqueue', {
+        console.log('Invoking ingest-enqueue with:', {
+          project_prefix: projectPrefix,
+          contract_id: contractId,
+          storage_path: path,
+          document_type: docType
+        });
+
+        const { data: enqueueData, error: enqueueErr } = await supabase.functions.invoke('ingest-enqueue', {
           body: { 
             project_prefix: projectPrefix,
             contract_id: contractId,
@@ -102,6 +114,8 @@ export default function DocumentUploader({
             document_type: docType
           }
         });
+
+        console.log('Enqueue response:', { data: enqueueData, error: enqueueErr });
 
         if (enqueueErr) {
           setLog(l => [`⚠️ Error al procesar ${safeName}: ${enqueueErr.message}`, ...l]);

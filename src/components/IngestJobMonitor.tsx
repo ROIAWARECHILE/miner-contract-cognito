@@ -1,11 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useIngestJobs, useIngestLogs } from '@/hooks/useIngestJobs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { useState } from 'react';
+import ProcessPendingJobsButton from './ProcessPendingJobsButton';
 
 interface IngestJobMonitorProps {
   contractId?: string;
@@ -65,10 +65,13 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
 
   return (
     <Card className="p-4">
-      <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-        <Clock className="h-5 w-5" />
-        Estado de Procesamiento
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-foreground flex items-center gap-2">
+          <Clock className="h-5 w-5" />
+          Estado de Procesamiento
+        </h3>
+        <ProcessPendingJobsButton />
+      </div>
       
       <div className="space-y-2">
         {jobs.map((job) => (
