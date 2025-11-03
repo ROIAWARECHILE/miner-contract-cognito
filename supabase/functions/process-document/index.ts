@@ -115,10 +115,24 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  // Parse body once at the start for use in error handler
+  let requestBody: any;
   try {
-    const body = await req.json();
-    const { contract_code, storage_path, document_type, metadata = {}, edp_number } = body;
+    requestBody = await req.json();
+  } catch (parseError) {
+    console.error("[process-document] Failed to parse request body:", parseError);
+    return new Response(JSON.stringify({
+      ok: false,
+      error: "Invalid request body"
+    }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
+    });
+  }
 
+  const { contract_code, storage_path, document_type, metadata = {}, edp_number } = requestBody;
+
+  try {
     console.log(`[process-document] Processing ${document_type}: ${storage_path}`);
 
     // Get contract
@@ -152,7 +166,7 @@ serve(async (req) => {
 
     console.log(`[process-document] Job created: ${job.id}`);
 
-    // Step 1: Generate presigned URL
+    // Step 1: Generate presigned URL (3600 seconds = 1 hour for LlamaParse processing)
     await supabase
       .from("document_processing_jobs")
       .update({ progress: { step: "generating_url", percent: 10 } })
@@ -160,13 +174,14 @@ serve(async (req) => {
 
     const { data: urlData, error: urlError } = await supabase.storage
       .from("contracts")
-      .createSignedUrl(storage_path, 600);
+      .createSignedUrl(storage_path, 3600);
 
     if (urlError || !urlData) {
+      console.error(`[process-document] Signed URL error:`, urlError);
       throw new Error(`Failed to generate signed URL: ${urlError?.message}`);
     }
 
-    console.log(`[process-document] Signed URL generated`);
+    console.log(`[process-document] Signed URL generated:`, urlData.signedUrl.substring(0, 100) + "...");
 
     // Step 2: Call LlamaParse
     if (!llamaApiKey) {
@@ -178,28 +193,34 @@ serve(async (req) => {
       .update({ progress: { step: "llamaparse_submit", percent: 20 } })
       .eq("id", job.id);
 
+    const llamaRequestBody = {
+      "input_url": urlData.signedUrl,
+      "parsing_instruction": "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.",
+      "result_type": "json",
+      "fast_mode": false,
+      "do_not_cache": false,
+      "continuous_mode": true,
+      "invalidate_cache": false,
+      "skip_diagonal_text": false,
+      "page_separator": "\n\n---PAGE_BREAK---\n\n"
+    };
+
+    console.log(`[process-document] Calling LlamaParse with URL:`, urlData.signedUrl.substring(0, 100) + "...");
+
     const llamaResponse = await fetch("https://api.cloud.llamaindex.ai/api/parsing/upload", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${llamaApiKey}`,
         "Accept": "application/json",
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        "input_url": urlData.signedUrl,
-        "parsing_instruction": "Extract all text, tables, and structure from this document. Preserve formatting and numerical data.",
-        "result_type": "json",
-        "fast_mode": false,
-        "do_not_cache": false,
-        "continuous_mode": true,
-        "invalidate_cache": false,
-        "skip_diagonal_text": false,
-        "page_separator": "\n\n---PAGE_BREAK---\n\n"
-      })
+      body: JSON.stringify(llamaRequestBody)
     });
 
     if (!llamaResponse.ok) {
       const errorText = await llamaResponse.text();
-      console.error(`[process-document] LlamaParse API error:`, errorText);
+      console.error(`[process-document] LlamaParse API error (${llamaResponse.status}):`, errorText);
+      console.error(`[process-document] Request body was:`, JSON.stringify(llamaRequestBody, null, 2));
       throw new Error(`LlamaParse API error: ${llamaResponse.status} ${errorText}`);
     }
 
@@ -389,29 +410,29 @@ serve(async (req) => {
 
   } catch (error) {
     console.error("[process-document] Error:", error);
+    console.error("[process-document] Error stack:", error instanceof Error ? error.stack : "No stack");
 
-    // Try to update job status if we have context
+    // Try to update job status using stored request body
     try {
-      const body = await req.clone().json();
-      const { contract_code, storage_path } = body;
-      
-      if (contract_code && storage_path) {
+      if (requestBody?.contract_code && requestBody?.storage_path) {
         const { data: contract } = await supabase
           .from("contracts")
           .select("id")
-          .eq("code", contract_code)
+          .eq("code", requestBody.contract_code)
           .single();
 
         if (contract) {
-          await supabase
+          const updateResult = await supabase
             .from("document_processing_jobs")
             .update({
               status: "failed",
               error: error instanceof Error ? error.message : String(error)
             })
             .eq("contract_id", contract.id)
-            .eq("storage_path", storage_path)
+            .eq("storage_path", requestBody.storage_path)
             .eq("status", "processing");
+
+          console.log("[process-document] Job status updated to failed:", updateResult);
         }
       }
     } catch (updateError) {
