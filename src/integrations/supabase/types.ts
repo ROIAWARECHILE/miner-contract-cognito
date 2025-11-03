@@ -568,6 +568,50 @@ export type Database = {
           },
         ]
       }
+      contract_tasks: {
+        Row: {
+          budget_uf: number | null
+          contract_id: string
+          created_at: string | null
+          id: string
+          progress_percentage: number | null
+          spent_uf: number | null
+          task_name: string
+          task_number: string
+          updated_at: string | null
+        }
+        Insert: {
+          budget_uf?: number | null
+          contract_id: string
+          created_at?: string | null
+          id?: string
+          progress_percentage?: number | null
+          spent_uf?: number | null
+          task_name: string
+          task_number: string
+          updated_at?: string | null
+        }
+        Update: {
+          budget_uf?: number | null
+          contract_id?: string
+          created_at?: string | null
+          id?: string
+          progress_percentage?: number | null
+          spent_uf?: number | null
+          task_name?: string
+          task_number?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_tasks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contract_text_chunks: {
         Row: {
           char_count: number | null
@@ -631,6 +675,7 @@ export type Database = {
           document_url: string | null
           end_date: string | null
           id: string
+          metadata: Json | null
           mineral: string | null
           risk_label: Database["public"]["Enums"]["risk_level"] | null
           risk_score: number | null
@@ -653,6 +698,7 @@ export type Database = {
           document_url?: string | null
           end_date?: string | null
           id?: string
+          metadata?: Json | null
           mineral?: string | null
           risk_label?: Database["public"]["Enums"]["risk_level"] | null
           risk_score?: number | null
@@ -675,6 +721,7 @@ export type Database = {
           document_url?: string | null
           end_date?: string | null
           id?: string
+          metadata?: Json | null
           mineral?: string | null
           risk_label?: Database["public"]["Enums"]["risk_level"] | null
           risk_score?: number | null
@@ -956,6 +1003,65 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "obligations_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_states: {
+        Row: {
+          amount_clp: number | null
+          amount_uf: number | null
+          approval_date: string | null
+          contract_id: string
+          created_at: string | null
+          data: Json | null
+          edp_number: number
+          id: string
+          period_end: string | null
+          period_label: string | null
+          period_start: string | null
+          status: string
+          uf_rate: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount_clp?: number | null
+          amount_uf?: number | null
+          approval_date?: string | null
+          contract_id: string
+          created_at?: string | null
+          data?: Json | null
+          edp_number: number
+          id?: string
+          period_end?: string | null
+          period_label?: string | null
+          period_start?: string | null
+          status?: string
+          uf_rate?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount_clp?: number | null
+          amount_uf?: number | null
+          approval_date?: string | null
+          contract_id?: string
+          created_at?: string | null
+          data?: Json | null
+          edp_number?: number
+          id?: string
+          period_end?: string | null
+          period_label?: string | null
+          period_start?: string | null
+          status?: string
+          uf_rate?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_states_contract_id_fkey"
             columns: ["contract_id"]
             isOneToOne: false
             referencedRelation: "contracts"

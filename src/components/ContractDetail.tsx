@@ -13,35 +13,29 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
 
 interface ContractDetailProps {
   contractId: string;
   onBack: () => void;
 }
 
+const CONTRACT_CODE = "AIPD-CSI001-1000-MN-0001";
+
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  // Mock data for S-curve
-  const progressData = [
-    { month: "Jul", planned: 5, actual: 5 },
+  const { data: analytics, isLoading: analyticsLoading } = useContractAnalytics(CONTRACT_CODE);
+  const { data: tasks = [], isLoading: tasksLoading } = useContractTasks(CONTRACT_CODE);
+  const { data: payments = [], isLoading: paymentsLoading } = usePaymentStates(CONTRACT_CODE);
+
+  // S-curve data (mock plan + real from payments)
+  const sCurveData = [
+    { month: "Jul", planned: 5, actual: analytics?.overall_progress_pct || 5 },
     { month: "Ago", planned: 15, actual: 0 },
     { month: "Sep", planned: 30, actual: 0 },
     { month: "Oct", planned: 50, actual: 0 },
     { month: "Nov", planned: 70, actual: 0 },
     { month: "Dic", planned: 90, actual: 0 },
     { month: "Ene", planned: 100, actual: 0 },
-  ];
-
-  const tasks = [
-    { name: "Recopilación y análisis de información", budget: 507, spent: 147.85, progress: 29 },
-    { name: "Visita a terreno", budget: 216, spent: 0, progress: 0 },
-    { name: "Actualización del estudio hidrológico", budget: 863, spent: 50.31, progress: 6 },
-    { name: "Revisión experta del Modelo Hidrogeológico", budget: 256, spent: 0, progress: 0 },
-    { name: "Actualización y calibración del MN", budget: 843, spent: 0, progress: 0 },
-    { name: "Análisis de condiciones desfavorables", budget: 213, spent: 0, progress: 0 },
-    { name: "Simulaciones predictivas", budget: 423, spent: 0, progress: 0 },
-    { name: "Asesoría Técnica y Análisis", budget: 580, spent: 0, progress: 0 },
-    { name: "Reuniones y presentaciones", budget: 386, spent: 11.66, progress: 3 },
-    { name: "Costos Administración (5%)", budget: 214, spent: 0, progress: 0 },
   ];
 
   const team = [
@@ -51,6 +45,14 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Macarena Casanova", role: "Consultor Senior", specialty: "Ing. Civil Minas" },
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
+
+  if (analyticsLoading || tasksLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <p className="text-muted-foreground">Cargando datos del contrato...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-right duration-500">
@@ -69,7 +71,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="flex items-start justify-between mb-6">
           <div>
             <Badge variant="secondary" className="font-mono mb-3">
-              AIPD-CSI001-1000-MN-0001
+              {CONTRACT_CODE}
             </Badge>
             <h1 className="text-3xl font-bold mb-2">
               Estudio Hidrológico e Hidrogeológico Proyecto Dominga
@@ -83,7 +85,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </div>
           </div>
           <div className="text-right">
-            <div className="text-5xl font-bold text-gradient mb-1">5%</div>
+            <div className="text-5xl font-bold text-gradient mb-1">
+              {analytics?.overall_progress_pct.toFixed(0)}%
+            </div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
           </div>
         </div>
@@ -91,19 +95,21 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="grid grid-cols-4 gap-6">
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Presupuesto Total</p>
-            <p className="text-2xl font-bold">4,501 UF</p>
+            <p className="text-2xl font-bold">{analytics?.total_budget_uf.toLocaleString()} UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Gastado</p>
-            <p className="text-2xl font-bold text-primary">209.81 UF</p>
+            <p className="text-2xl font-bold text-primary">{analytics?.spent_uf.toFixed(2)} UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Disponible</p>
-            <p className="text-2xl font-bold text-success">4,291.19 UF</p>
+            <p className="text-2xl font-bold text-success">{analytics?.available_uf.toFixed(2)} UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">EDPs Pagados</p>
-            <p className="text-2xl font-bold">1 de 10</p>
+            <p className="text-2xl font-bold">
+              {payments.filter(p => p.status === 'approved').length} de {payments.length || 10}
+            </p>
           </div>
         </div>
       </div>
@@ -137,7 +143,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={progressData}>
+                <AreaChart data={sCurveData}>
                   <defs>
                     <linearGradient id="planned" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -185,22 +191,28 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Avance por Tarea</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {tasks.map((task, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">{task.name}</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-muted-foreground">
-                        {task.spent.toFixed(2)} / {task.budget} UF
-                      </span>
-                      <Badge variant={task.progress > 0 ? "default" : "secondary"}>
-                        {task.progress}%
-                      </Badge>
+              {tasks.length > 0 ? (
+                tasks.map((task) => (
+                  <div key={task.id} className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{task.task_name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-muted-foreground">
+                          {task.spent_uf.toFixed(2)} / {task.budget_uf} UF
+                        </span>
+                        <Badge variant={task.progress_percentage > 0 ? "default" : "secondary"}>
+                          {task.progress_percentage}%
+                        </Badge>
+                      </div>
                     </div>
+                    <Progress value={task.progress_percentage} className="h-2" />
                   </div>
-                  <Progress value={task.progress} className="h-2" />
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-muted-foreground text-center py-4">
+                  No hay tareas registradas aún
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -211,7 +223,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Documentos del Contrato</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">Documentos cargados y gestionados con IA...</p>
+              <p className="text-muted-foreground">
+                {payments.length} EDPs procesados
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

@@ -1,1 +1,4 @@
 project_id = "wnkifmuhkhdjbswraini"
+
+[functions.process-dominga-documents]
+verify_jwt = false
