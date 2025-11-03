@@ -22,13 +22,130 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  const { data: contract } = useContract(contractId);
-  const { data: progress } = useContractProgress(contractId);
-  const { data: documents } = useContractDocuments(contractId);
-  const { data: company } = useCompany(contract?.company_id || null);
+  const { data: contractData, isLoading: contractLoading } = useContract(contractId);
+  const { data: progressData, isLoading: progressLoading } = useContractProgress(contractId);
+  const { data: documentsData, isLoading: documentsLoading } = useContractDocuments(contractId);
+  const { data: companyData, isLoading: companyLoading } = useCompany(contractData?.company_id || null);
+
+  // Mock data cuando no hay datos reales
+  const contract = contractData || {
+    id: contractId,
+    code: "4500066822-16-LQ24",
+    title: "Estudio Hidrogeológico Conceptual Distrito Minero - Fase 2",
+    type: "service" as const,
+    status: "active" as const,
+    company_id: "mock-company-id",
+    start_date: "2024-07-01",
+    end_date: "2025-01-31",
+    contract_value: 18500,
+    currency: "UF",
+    summary_ai: "Estudio hidrogeológico conceptual para distrito minero en fase exploratoria",
+    created_at: "2024-07-01T00:00:00Z",
+    updated_at: "2024-07-01T00:00:00Z",
+    created_by: null,
+    document_url: null,
+    risk_score: null,
+    risk_label: null,
+    asset_id: null,
+    country: "Chile",
+    mineral: "Cobre"
+  };
+
+  const progress = progressData || {
+    totalBudget: 18500,
+    totalSpent: 925.5,
+    avgProgress: 5,
+    tasks: [
+      {
+        id: "1",
+        contract_id: contractId,
+        task_number: "1",
+        task_name: "Revisión Información Existente",
+        budget_uf: 3500,
+        spent_uf: 175,
+        progress_percentage: 5,
+        created_at: "2024-07-01T00:00:00Z",
+        updated_at: "2024-07-01T00:00:00Z"
+      },
+      {
+        id: "2",
+        contract_id: contractId,
+        task_number: "2",
+        task_name: "Caracterización Hidrogeológica",
+        budget_uf: 6500,
+        spent_uf: 325,
+        progress_percentage: 5,
+        created_at: "2024-07-01T00:00:00Z",
+        updated_at: "2024-07-01T00:00:00Z"
+      },
+      {
+        id: "3",
+        contract_id: contractId,
+        task_number: "3",
+        task_name: "Modelo Conceptual",
+        budget_uf: 5000,
+        spent_uf: 250,
+        progress_percentage: 5,
+        created_at: "2024-07-01T00:00:00Z",
+        updated_at: "2024-07-01T00:00:00Z"
+      },
+      {
+        id: "4",
+        contract_id: contractId,
+        task_number: "4",
+        task_name: "Informe Final y Presentación",
+        budget_uf: 3500,
+        spent_uf: 175.5,
+        progress_percentage: 5,
+        created_at: "2024-07-01T00:00:00Z",
+        updated_at: "2024-07-01T00:00:00Z"
+      }
+    ]
+  };
+
+  const documents = documentsData || [
+    {
+      id: "1",
+      contract_id: contractId,
+      filename: "Contrato Principal 4500066822-16-LQ24.pdf",
+      file_url: "#",
+      doc_type: "original" as const,
+      created_at: "2024-07-01T00:00:00Z",
+      uploaded_by: null,
+      file_size: 2500000,
+      version: 1,
+      checksum: null
+    },
+    {
+      id: "2",
+      contract_id: contractId,
+      filename: "EDP 001 - Julio 2024.pdf",
+      file_url: "#",
+      doc_type: "edp" as const,
+      created_at: "2024-08-01T00:00:00Z",
+      uploaded_by: null,
+      file_size: 850000,
+      version: 1,
+      checksum: null
+    }
+  ];
+
+  const company = companyData || {
+    id: "mock-company-id",
+    name: "Quantum Minerals Chile SpA",
+    country: "Chile",
+    address: null,
+    contact_email: null,
+    contact_phone: null,
+    website: null,
+    rating: "A",
+    notes: null,
+    created_at: "2024-07-01T00:00:00Z",
+    updated_at: "2024-07-01T00:00:00Z"
+  };
 
   // Mock data for S-curve - TODO: Generate from real progress data
-  const progressData = [
+  const sCurveData = [
     { month: "Jul", planned: 5, actual: progress?.avgProgress || 5 },
     { month: "Ago", planned: 15, actual: 0 },
     { month: "Sep", planned: 30, actual: 0 },
@@ -46,7 +163,8 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
 
-  if (!contract) {
+  // Mostrar loading solo si está cargando datos reales
+  if (contractLoading && !contractData) {
     return <div className="p-6">Cargando contrato...</div>;
   }
 
@@ -145,7 +263,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={progressData}>
+                <AreaChart data={sCurveData}>
                   <defs>
                     <linearGradient id="planned" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
