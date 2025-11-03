@@ -18,15 +18,33 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get next job from queue
-    const { data: job, error: jobError } = await supabase.rpc('get_next_ingest_job');
-    
-    if (jobError) throw jobError;
-    if (!job) {
-      return new Response(
-        JSON.stringify({ ok: true, idle: true, message: 'No pending jobs' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Check if a specific job_id was provided
+    const body = req.method === 'POST' ? await req.json() : {};
+    const specificJobId = body.job_id;
+
+    let job;
+    if (specificJobId) {
+      // Process specific job
+      const { data: specificJob, error: specificError } = await supabase
+        .from('ingest_jobs')
+        .select('*')
+        .eq('id', specificJobId)
+        .single();
+      
+      if (specificError) throw specificError;
+      job = specificJob;
+    } else {
+      // Get next job from queue
+      const { data: nextJob, error: jobError } = await supabase.rpc('get_next_ingest_job');
+      
+      if (jobError) throw jobError;
+      if (!nextJob) {
+        return new Response(
+          JSON.stringify({ ok: true, idle: true, message: 'No pending jobs' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      job = nextJob;
     }
 
     console.log(`Processing job ${job.id}: ${job.storage_path}`);

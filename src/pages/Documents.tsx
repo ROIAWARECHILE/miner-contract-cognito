@@ -63,9 +63,10 @@ export default function DocumentsPage() {
           </h3>
           <div className="text-sm text-muted-foreground space-y-1">
             <p>• Los documentos se suben al bucket <code className="bg-muted px-1 rounded">contracts/dominga/</code></p>
-            <p>• Se encolan automáticamente para procesamiento con IA</p>
+            <p>• Se procesan inmediatamente con IA (Gemini 2.5 Pro)</p>
             <p>• La extracción incluye clasificación, parseo, validación y cálculo de KPIs</p>
             <p>• Los resultados se actualizan en tiempo real en el dashboard</p>
+            <p>• El procesamiento ocurre en segundo plano sin esperas</p>
           </div>
         </div>
       </main>

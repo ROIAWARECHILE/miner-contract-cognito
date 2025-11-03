@@ -83,9 +83,9 @@ export default function DocumentUploader({
         });
 
         if (enqueueErr) {
-          setLog(l => [`⚠️ Encolado fallido para ${safeName}: ${enqueueErr.message}`, ...l]);
+          setLog(l => [`⚠️ Error al procesar ${safeName}: ${enqueueErr.message}`, ...l]);
         } else {
-          setLog(l => [`🔄 Encolado para procesamiento: ${safeName}`, ...l]);
+          setLog(l => [`✅ Procesamiento iniciado: ${safeName}`, ...l]);
         }
       } catch (e: any) {
         setLog(l => [`❌ Error con ${f.name}: ${e.message ?? e}`, ...l]);
@@ -97,7 +97,7 @@ export default function DocumentUploader({
     }
     
     setBusy(false);
-    toast.success(`${done} archivo(s) subido(s) y encolado(s)`);
+    toast.success(`${done} archivo(s) subido(s) y procesándose con IA`);
   }
 
   return (
@@ -137,7 +137,7 @@ export default function DocumentUploader({
             disabled={busy} 
             className="w-full"
           >
-            {busy ? 'Subiendo…' : 'Subir y encolar ingesta'}
+            {busy ? 'Subiendo y procesando…' : 'Subir y procesar con IA'}
           </Button>
           
           {progress > 0 && (

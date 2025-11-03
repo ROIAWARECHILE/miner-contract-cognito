@@ -6,6 +6,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Background processing function
+async function processJobInBackground(jobId: string, supabaseUrl: string, supabaseKey: string) {
+  try {
+    console.log(`Starting background processing for job ${jobId}`);
+    
+    // Call ingest-worker to process this specific job
+    const response = await fetch(`${supabaseUrl}/functions/v1/ingest-worker`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ job_id: jobId })
+    });
+
+    const result = await response.json();
+    console.log(`Background processing completed for job ${jobId}:`, result);
+  } catch (error) {
+    console.error(`Background processing failed for job ${jobId}:`, error);
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -67,11 +89,22 @@ serve(async (req) => {
       meta: { project_prefix, etag, file_hash }
     });
 
+    // Start background processing immediately (no await)
+    // @ts-ignore - EdgeRuntime is available in Deno Deploy
+    if (typeof EdgeRuntime !== 'undefined') {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(processJobInBackground(job.id, supabaseUrl, supabaseKey));
+    } else {
+      // Fallback for local development
+      processJobInBackground(job.id, supabaseUrl, supabaseKey).catch(console.error);
+    }
+
     return new Response(
       JSON.stringify({ 
-        message: 'Job enqueued successfully',
+        message: 'Job enqueued and processing started',
         job_id: job.id,
-        storage_path
+        storage_path,
+        status: 'processing'
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
