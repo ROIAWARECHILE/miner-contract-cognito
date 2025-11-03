@@ -1,4 +1,4 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2, Upload, CheckCheck } from "lucide-react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2, CheckCheck } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -14,49 +14,8 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const { data: contractsData, isLoading, refetch } = useContracts();
-
-  const handleProcessDocuments = async () => {
-    setIsProcessing(true);
-    toast.info("Iniciando procesamiento de documentos desde Storage...");
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('process-dominga-documents');
-      
-      if (error) {
-        console.error('Edge function error:', error);
-        throw new Error(error.message || 'Error desconocido al invocar la función');
-      }
-      
-      console.log('Document processing result:', data);
-      
-      if (data?.log) {
-        const successCount = data.log.filter((l: any) => l.type === 'ingest' || l.type === 'update').length;
-        const errorCount = data.log.filter((l: any) => l.type === 'error').length;
-        
-        if (errorCount > 0) {
-          toast.warning(`Procesamiento completado con ${errorCount} errores. ${successCount} acciones realizadas.`);
-        } else {
-          toast.success(`¡Procesamiento exitoso! ${successCount} acciones realizadas.`);
-        }
-      } else {
-        toast.success("Documentos procesados correctamente");
-      }
-      
-      // Refresh data
-      setTimeout(() => refetch(), 1000);
-    } catch (error: any) {
-      console.error('Error processing documents:', error);
-      const errorMsg = error?.message || 'Error desconocido';
-      toast.error(`Error al procesar documentos: ${errorMsg}`, {
-        description: 'Verifica que los documentos estén en Storage y que las funciones estén desplegadas'
-      });
-    } finally {
-      setIsProcessing(false);
-    }
-  };
 
   const handleVerifyContract = async () => {
     setIsVerifying(true);
@@ -178,15 +137,6 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
             <CheckCheck className="h-4 w-4" />
             {isVerifying ? "Verificando..." : "Verificar Datos"}
           </Button>
-          <Button 
-            onClick={handleProcessDocuments}
-            disabled={isProcessing}
-            variant="outline"
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            {isProcessing ? "Procesando..." : "Procesar PDFs"}
-          </Button>
         </div>
       </div>
 
@@ -230,12 +180,6 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
             <p className="text-muted-foreground text-sm text-center mb-4">
               Comienza subiendo documentos para crear tu primer contrato
             </p>
-            <Button 
-              onClick={handleProcessDocuments}
-              disabled={isProcessing}
-            >
-              Procesar Documentos
-            </Button>
           </CardContent>
         </Card>
       ) : (

@@ -75,22 +75,44 @@ serve(async (req) => {
     if (downloadError) throw downloadError;
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-
-    // Classify document type from path
-    const pathParts = job.storage_path.split('/');
-    const folderType = pathParts[pathParts.length - 2]; // e.g., 'edp', 'contract', etc.
-    const filename = pathParts[pathParts.length - 1];
+    const filename = job.storage_path.split('/').pop() || 'document.pdf';
+    const docType = job.document_type || job.storage_path.split('/')[1]; // Use job.document_type or fallback to folder
 
     await supabase.from('ingest_logs').insert({
       job_id: job.id,
       step: 'classify',
-      message: `Classified as ${folderType}`,
-      meta: { folder: folderType, filename }
+      message: `Classified as ${docType}`,
+      meta: { document_type: docType, filename }
     });
 
-    // Extract with AI (Lovable AI Gateway - Gemini 2.5 Pro)
-    const systemPrompt = buildSystemPrompt(folderType);
+    // Step 1: Parse PDF with Lovable's document parser
+    const formData = new FormData();
+    formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), filename);
+    
+    const parseResponse = await fetch('https://ai.gateway.lovable.dev/v1/documents/parse', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${lovableApiKey}`,
+      },
+      body: formData,
+    });
+
+    if (!parseResponse.ok) {
+      throw new Error(`PDF parsing failed: ${parseResponse.status}`);
+    }
+
+    const parseResult = await parseResponse.json();
+    const parsedText = parseResult.text || '';
+
+    await supabase.from('ingest_logs').insert({
+      job_id: job.id,
+      step: 'parse',
+      message: `Parsed ${parsedText.length} characters from PDF`,
+      meta: { text_length: parsedText.length, pages: parseResult.pages }
+    });
+
+    // Step 2: Extract structured data from parsed text with AI
+    const systemPrompt = buildSystemPrompt(docType);
     
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -99,16 +121,10 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-pro',
+        model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Filename: ${filename}\n\nExtract data from this PDF according to the schema.` },
-          { 
-            role: 'user', 
-            content: [
-              { type: 'image_url', image_url: { url: `data:application/pdf;base64,${base64}` } }
-            ]
-          }
+          { role: 'user', content: `Filename: ${filename}\n\nParsed text from PDF:\n\n${parsedText}\n\nExtract structured data according to the schema.` }
         ],
         response_format: { type: 'json_object' }
       }),
@@ -158,7 +174,7 @@ serve(async (req) => {
       contract_id: job.contract_id,
       filename: filename,
       file_url: job.storage_path,
-      doc_type: docTypeMap[folderType] || 'original',
+      doc_type: docTypeMap[docType] || 'original',
       file_size: arrayBuffer.byteLength,
       checksum: job.file_hash,
       processing_status: 'completed',

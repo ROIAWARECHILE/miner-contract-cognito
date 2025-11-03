@@ -255,13 +255,36 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                     <div key={doc.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors">
                       <div className="flex-1">
                         <p className="font-medium">{doc.filename}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {doc.doc_type} • {(doc.file_size / 1024).toFixed(0)} KB • {new Date(doc.created_at).toLocaleDateString('es-CL')}
-                        </p>
-                        {doc.processing_status && (
-                          <Badge variant={doc.processing_status === 'completed' ? 'default' : 'secondary'} className="mt-1">
-                            {doc.processing_status}
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                          <Badge variant="outline" className="text-xs">
+                            {doc.doc_type}
                           </Badge>
+                          <span>•</span>
+                          <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
+                          <span>•</span>
+                          <span>{new Date(doc.created_at).toLocaleDateString('es-CL')}</span>
+                          {doc.processing_status && (
+                            <>
+                              <span>•</span>
+                              <Badge 
+                                variant={
+                                  doc.processing_status === 'completed' ? 'default' : 
+                                  doc.processing_status === 'failed' ? 'destructive' : 
+                                  'secondary'
+                                } 
+                                className="text-xs"
+                              >
+                                {doc.processing_status === 'completed' ? '✓ Procesado' : 
+                                 doc.processing_status === 'failed' ? '✗ Error' : 
+                                 '⏳ Procesando'}
+                              </Badge>
+                            </>
+                          )}
+                        </div>
+                        {doc.extracted_data?.edp_number && (
+                          <p className="text-xs text-primary mt-1">
+                            EDP #{doc.extracted_data.edp_number}
+                          </p>
                         )}
                       </div>
                       <Button 

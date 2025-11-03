@@ -968,6 +968,7 @@ export type Database = {
           attempts: number | null
           contract_id: string | null
           created_at: string | null
+          document_type: string | null
           etag: string | null
           file_hash: string | null
           id: string
@@ -981,6 +982,7 @@ export type Database = {
           attempts?: number | null
           contract_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           etag?: string | null
           file_hash?: string | null
           id?: string
@@ -994,6 +996,7 @@ export type Database = {
           attempts?: number | null
           contract_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           etag?: string | null
           file_hash?: string | null
           id?: string
@@ -1596,6 +1599,7 @@ export type Database = {
           attempts: number | null
           contract_id: string | null
           created_at: string | null
+          document_type: string | null
           etag: string | null
           file_hash: string | null
           id: string

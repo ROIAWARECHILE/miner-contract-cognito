@@ -1,8 +1,5 @@
 project_id = "wnkifmuhkhdjbswraini"
 
-[functions.process-dominga-documents]
-verify_jwt = false
-
 [functions.ingest-enqueue]
 verify_jwt = false
 

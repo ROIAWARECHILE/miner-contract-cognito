@@ -85,20 +85,21 @@ export default function DocumentUploader({
 
         setLog(l => [`✅ Subido: ${safeName} → ${path}`, ...l]);
 
-        // Enqueue ingestion job
+        // Enqueue ingestion job with document type
         const { error: enqueueErr } = await supabase.functions.invoke('ingest-enqueue', {
           body: { 
             project_prefix: projectPrefix,
             contract_id: contractId,
             storage_path: path, 
-            file_hash: hash 
+            file_hash: hash,
+            document_type: docType
           }
         });
 
         if (enqueueErr) {
           setLog(l => [`⚠️ Error al procesar ${safeName}: ${enqueueErr.message}`, ...l]);
         } else {
-          setLog(l => [`✅ Procesamiento iniciado: ${safeName}`, ...l]);
+          setLog(l => [`🔄 Procesamiento iniciado: ${safeName} (${LABEL[docType]})`, ...l]);
         }
       } catch (e: any) {
         setLog(l => [`❌ Error con ${f.name}: ${e.message ?? e}`, ...l]);
