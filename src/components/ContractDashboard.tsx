@@ -1,11 +1,14 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useState } from "react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useContracts, useSLAAlerts } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
+import { ContractFormDialog } from "./ContractFormDialog";
 
 interface ContractDashboardProps {
   onSelectContract: (id: string) => void;
@@ -13,6 +16,7 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
+  const [showContractForm, setShowContractForm] = useState(false);
   const { data: contracts, isLoading: contractsLoading, error: contractsError } = useContracts();
   const { data: alerts } = useSLAAlerts();
 
@@ -133,11 +137,17 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
-        <p className="text-muted-foreground">
-          Gestión inteligente de contratos mineros con IA
-        </p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
+          <p className="text-muted-foreground">
+            Gestión inteligente de contratos mineros con IA
+          </p>
+        </div>
+        <Button onClick={() => setShowContractForm(true)} size="lg">
+          <Plus className="w-4 h-4 mr-2" />
+          Nuevo Contrato
+        </Button>
       </div>
 
       {/* Stats Grid */}
@@ -239,6 +249,8 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
           );
         })}
       </div>
+
+      <ContractFormDialog open={showContractForm} onOpenChange={setShowContractForm} />
     </div>
   );
 };
