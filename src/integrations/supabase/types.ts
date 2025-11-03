@@ -881,6 +881,63 @@ export type Database = {
           },
         ]
       }
+      document_processing_jobs: {
+        Row: {
+          contract_id: string | null
+          created_at: string | null
+          document_type: string
+          error: string | null
+          id: string
+          llama_job_id: string | null
+          progress: Json | null
+          result: Json | null
+          status: string | null
+          storage_path: string
+          updated_at: string | null
+        }
+        Insert: {
+          contract_id?: string | null
+          created_at?: string | null
+          document_type: string
+          error?: string | null
+          id?: string
+          llama_job_id?: string | null
+          progress?: Json | null
+          result?: Json | null
+          status?: string | null
+          storage_path: string
+          updated_at?: string | null
+        }
+        Update: {
+          contract_id?: string | null
+          created_at?: string | null
+          document_type?: string
+          error?: string | null
+          id?: string
+          llama_job_id?: string | null
+          progress?: Json | null
+          result?: Json | null
+          status?: string | null
+          storage_path?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_processing_jobs_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_processing_jobs_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+        ]
+      }
       documents: {
         Row: {
           checksum: string | null

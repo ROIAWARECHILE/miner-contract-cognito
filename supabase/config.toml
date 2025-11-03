@@ -1,12 +1,6 @@
 project_id = "wnkifmuhkhdjbswraini"
 
-[functions.process-edp-llamaparse]
-verify_jwt = false
-
-[functions.ingest-enqueue]
-verify_jwt = false
-
-[functions.ingest-worker]
+[functions.process-document]
 verify_jwt = false
 
 [functions.verify-contract]

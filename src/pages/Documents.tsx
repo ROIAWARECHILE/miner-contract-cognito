@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import DocumentUploader from '@/components/DocumentUploader';
-import IngestJobMonitor from '@/components/IngestJobMonitor';
+import { DocumentProcessingMonitor } from '@/components/DocumentProcessingMonitor';
 import { Header } from '@/components/Header';
 import { useContracts } from '@/hooks/useContract';
 import { Card } from '@/components/ui/card';
@@ -50,7 +50,7 @@ export default function DocumentsPage() {
         {/* Job Monitor */}
         {selectedContractId && (
           <div className="mb-6">
-            <IngestJobMonitor contractId={selectedContractId} />
+            <DocumentProcessingMonitor contractId={selectedContractId} />
           </div>
         )}
 
@@ -102,15 +102,15 @@ export default function DocumentsPage() {
           <div className="text-sm text-muted-foreground space-y-2">
             <div className="flex items-start gap-2">
               <span className="font-semibold text-green-600 dark:text-green-400">Capa 1 - LlamaParse:</span>
-              <span>Extrae estructura, tablas y contenido del PDF en formato Markdown</span>
+              <span>Extrae estructura, tablas y contenido del PDF con OCR avanzado</span>
             </div>
             <div className="flex items-start gap-2">
-              <span className="font-semibold text-blue-600 dark:text-blue-400">Capa 2 - Gemini/Claude:</span>
-              <span>Analiza el contenido y genera JSON estructurado con validaciones</span>
+              <span className="font-semibold text-blue-600 dark:text-blue-400">Capa 2 - OpenAI GPT-4o:</span>
+              <span>Analiza el contenido y extrae datos estructurados con interpretación semántica</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="font-semibold text-purple-600 dark:text-purple-400">Capa 3 - Validación:</span>
-              <span>Verifica cifras, cálculos y consistencia de datos automáticamente</span>
+              <span>Verifica consistencia y actualiza automáticamente métricas del contrato</span>
             </div>
             
             <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">

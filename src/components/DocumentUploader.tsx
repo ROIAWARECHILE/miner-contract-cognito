@@ -82,7 +82,16 @@ export default function DocumentUploader({
       return;
     }
     
-    setLog(l => [`✓ Iniciando subida con contrato: ${contracts?.find(c => c.id === contractId)?.code}`, ...l]);
+    // Get contract code
+    const contract = contracts?.find(c => c.id === contractId);
+    const contract_code = contract?.code || '';
+    
+    if (!contract_code) {
+      toast.error('Error: Contrato no encontrado');
+      return;
+    }
+    
+    setLog(l => [`✓ Iniciando subida con contrato: ${contract_code}`, ...l]);
     setBusy(true);
     setProgress(0); 
     setLog([]);
@@ -92,10 +101,23 @@ export default function DocumentUploader({
 
     for (const f of files) {
       try {
-        const hash = await digest(f);
         const safeName = sanitize(f.name);
-        const path = `${projectPrefix}/${docType}/${safeName}`;
+        
+        // Construct storage path matching new system
+        const folderMap: Record<DocType, string> = {
+          contract: 'contract',
+          quality: 'quality',
+          sso: 'sso',
+          tech: 'tech',
+          edp: 'edp',
+          sdi: 'sdi',
+          addendum: 'addendum'
+        };
 
+        const folder = folderMap[docType] || docType;
+        const path = `${projectPrefix}/${contract_code}/${folder}/${safeName}`;
+
+        // Upload to storage
         const { error: upErr } = await supabase.storage
           .from('contracts')
           .upload(path, f, { 
@@ -107,55 +129,44 @@ export default function DocumentUploader({
 
         setLog(l => [`✅ Subido: ${safeName} → ${path}`, ...l]);
 
-        // Get contract code for new pipeline
-        const contract = contracts?.find(c => c.id === contractId);
-        const contract_code = contract?.code || '';
-
-        if (!contract_code) {
-          setLog(l => [`⚠️ No se pudo obtener el código del contrato`, ...l]);
-          toast.error('Error: Contrato no encontrado');
-          continue;
+        // Extract EDP number from filename if applicable
+        let edpNumber: number | undefined;
+        if (docType === 'edp') {
+          const match = safeName.match(/EDP[^\d]*(\d+)/i);
+          if (match) {
+            edpNumber = parseInt(match[1], 10);
+            setLog(l => [`📝 Extraído EDP número: ${edpNumber}`, ...l]);
+          }
         }
 
-        // Use new LlamaParse + OpenAI pipeline for EDPs
-        if (docType === 'edp') {
-          setLog(l => [`🦙 Procesando EDP con LlamaParse + OpenAI GPT-4o...`, ...l]);
-          
-          const { data: processData, error: processErr } = await supabase.functions.invoke('process-edp-llamaparse', {
-            body: { 
+        // Call unified processing function
+        setLog(l => [`🔄 Procesando con LlamaParse + OpenAI GPT-4o...`, ...l]);
+
+        const { data: processData, error: processErr } = await supabase.functions.invoke(
+          'process-document',
+          {
+            body: {
               contract_code,
               storage_path: path,
-              edp_number: parseInt(safeName.match(/\d+/)?.[0] || '0') // Extract number from filename
+              document_type: docType,
+              edp_number: edpNumber,
+              metadata: {
+                filename: safeName,
+                uploaded_at: new Date().toISOString()
+              }
             }
-          });
-
-          if (processErr) {
-            setLog(l => [`❌ Error al procesar ${safeName}: ${processErr.message}`, ...l]);
-            toast.error(`Error al procesar ${safeName}: ${processErr.message}`);
-          } else if (processData?.ok) {
-            setLog(l => [`✅ ${safeName} procesado exitosamente`, ...l]);
-            setLog(l => [`📊 Gastado: ${processData.metrics?.spent_uf} UF | Avance: ${processData.metrics?.progress_pct}%`, ...l]);
-            toast.success(`✅ EDP #${processData.edp_number} procesado: ${processData.metrics?.tasks_count} tareas actualizadas`);
-          } else {
-            setLog(l => [`⚠️ Respuesta inesperada al procesar ${safeName}`, ...l]);
           }
+        );
+
+        if (processErr) {
+          setLog(l => [`❌ Error al procesar ${safeName}: ${processErr.message}`, ...l]);
+          toast.error(`Error al procesar ${safeName}: ${processErr.message}`);
+        } else if (processData?.ok) {
+          setLog(l => [`✅ ${safeName} procesado exitosamente`, ...l]);
+          toast.success(`✅ ${safeName} procesado correctamente`);
         } else {
-          // Fallback to old pipeline for non-EDP documents
-          const { data: enqueueData, error: enqueueErr } = await supabase.functions.invoke('ingest-enqueue', {
-            body: { 
-              project_prefix: projectPrefix,
-              contract_id: contractId,
-              storage_path: path, 
-              file_hash: hash,
-              document_type: docType
-            }
-          });
-
-          if (enqueueErr) {
-            setLog(l => [`⚠️ Error al procesar ${safeName}: ${enqueueErr.message}`, ...l]);
-          } else {
-            setLog(l => [`🔄 Procesamiento iniciado: ${safeName} (${LABEL[docType]})`, ...l]);
-          }
+          setLog(l => [`⚠️ Respuesta inesperada al procesar ${safeName}`, ...l]);
+          toast.error(processData?.error || 'Error desconocido al procesar');
         }
       } catch (e: any) {
         setLog(l => [`❌ Error con ${f.name}: ${e.message ?? e}`, ...l]);
@@ -167,23 +178,10 @@ export default function DocumentUploader({
     }
     
     setBusy(false);
-    const failedCount = total - done;
     
-    if (failedCount > 0) {
-      toast.error(`❌ ${failedCount} archivo(s) fallaron. Revisa los logs.`, {
-        duration: 6000
-      });
-    } else {
-      if (docType === 'edp') {
-        toast.success(`✅ ${done} EDP(s) procesados con LlamaParse + OpenAI GPT-4o`, {
-          duration: 5000
-        });
-      } else {
-        toast.success(`✅ ${done} archivo(s) subidos y procesados`, {
-          duration: 4000
-        });
-      }
-    }
+    toast.success(`✅ ${done} archivo(s) procesados con LlamaParse + OpenAI GPT-4o`, {
+      duration: 5000
+    });
   }
 
   // Prevent upload if no contract selected
