@@ -531,11 +531,37 @@ ${parsedText}`;
 
       console.log(`[process-document] Payment state upserted`);
 
+      // Función auxiliar para normalizar task_numbers
+      const normalizeTaskNumber = (taskNumber: string, taskName: string): string => {
+        // Si es ".0" al final y no es "1.2", eliminar el .0
+        if (taskNumber.endsWith('.0') && taskNumber !== '1.2') {
+          return taskNumber.replace('.0', '');
+        }
+        
+        // Casos especiales basados en el nombre de la tarea
+        if (taskName.includes('Recopilación y análisis')) {
+          return '1';
+        }
+        if (taskName.includes('Actualización del estudio hidrológico') && !taskName.includes('calibración')) {
+          return '2';
+        }
+        if (taskName.includes('Reuniones y presentaciones') && !taskName.includes('Administración')) {
+          return '8';
+        }
+        if (taskName.includes('Costos Administración')) {
+          return '9';
+        }
+        
+        return taskNumber;
+      };
+
       // Upsert tasks with accumulated spent_uf
       for (const task of structured.tasks_executed || []) {
         const budgetUf = parseFloat(task.budget_uf) || 0;
         const newSpentUf = parseFloat(task.spent_uf) || 0;
-        const taskNumber = task.task_number; // Mantener task_number original sin normalizar
+        
+        // Normalizar task_number de forma inteligente
+        const taskNumber = normalizeTaskNumber(task.task_number, task.name);
         
         // 1. Verificar si este EDP ya fue procesado anteriormente
         const { data: existingEDP } = await supabase
