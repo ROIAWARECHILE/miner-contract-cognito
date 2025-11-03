@@ -211,9 +211,9 @@ export default function DocumentUploader({
 
 function sanitize(name: string) {
   return name
-    .replace(/\s+/g,' ')
-    .replace(/[^\w\.\-\u00C0-\u017F ]/g,'')
-    .replace(/ +/g,' ')
+    .replace(/\s+/g, '_')  // Replace spaces with underscores
+    .replace(/[^\w\.\-\u00C0-\u017F_]/g, '')  // Remove special chars except letters, numbers, dots, dashes, underscores
+    .replace(/_+/g, '_')  // Replace multiple underscores with single
     .trim();
 }
 

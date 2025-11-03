@@ -6,6 +6,7 @@ import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import ProcessPendingJobsButton from './ProcessPendingJobsButton';
+import FixStuckJobButton from './FixStuckJobButton';
 
 interface IngestJobMonitorProps {
   contractId?: string;
@@ -70,7 +71,10 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
           <Clock className="h-5 w-5" />
           Estado de Procesamiento
         </h3>
-        <ProcessPendingJobsButton />
+        <div className="flex gap-2">
+          <FixStuckJobButton />
+          <ProcessPendingJobsButton />
+        </div>
       </div>
       
       <div className="space-y-2">

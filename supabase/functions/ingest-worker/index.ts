@@ -67,11 +67,21 @@ serve(async (req) => {
     });
 
     // Download PDF from storage
+    console.log('Downloading PDF from storage:', job.storage_path);
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('contracts')
       .download(job.storage_path);
 
-    if (downloadError) throw downloadError;
+    if (downloadError) {
+      console.error('Storage download error:', downloadError);
+      throw new Error(`Failed to download file: ${downloadError.message}`);
+    }
+
+    if (!fileData) {
+      throw new Error('No file data returned from storage');
+    }
+
+    console.log('File downloaded successfully, size:', fileData.size);
 
     const arrayBuffer = await fileData.arrayBuffer();
     const filename = job.storage_path.split('/').pop() || 'document.pdf';
@@ -85,6 +95,8 @@ serve(async (req) => {
     });
 
     // Step 1: Parse PDF with Lovable's document parser
+    console.log('Parsing PDF from storage:', job.storage_path);
+    
     const formData = new FormData();
     formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), filename);
     
@@ -97,11 +109,18 @@ serve(async (req) => {
     });
 
     if (!parseResponse.ok) {
-      throw new Error(`PDF parsing failed: ${parseResponse.status}`);
+      const errorText = await parseResponse.text();
+      console.error('PDF parsing failed:', parseResponse.status, errorText);
+      throw new Error(`PDF parsing failed: ${parseResponse.status} - ${errorText}`);
     }
 
     const parseResult = await parseResponse.json();
     const parsedText = parseResult.text || '';
+    
+    console.log('PDF parsed successfully:', {
+      text_length: parsedText.length,
+      pages: parseResult.pages
+    });
 
     await supabase.from('ingest_logs').insert({
       job_id: job.id,
