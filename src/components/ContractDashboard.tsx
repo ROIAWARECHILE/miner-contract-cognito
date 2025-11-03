@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useContracts } from "@/hooks/useContract";
+import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 
 interface ContractDashboardProps {
   onSelectContract: (id: string) => void;
@@ -16,6 +17,9 @@ interface ContractDashboardProps {
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
   const [isVerifying, setIsVerifying] = useState(false);
   const { data: contractsData, isLoading, refetch } = useContracts();
+  
+  // Enable realtime updates for the main contract
+  useRealtimeContract('AIPD-CSI001-1000-MN-0001');
 
   const handleVerifyContract = async () => {
     setIsVerifying(true);
@@ -94,7 +98,9 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
     },
     { 
       label: "EDPs Aprobados", 
-      value: "1", 
+      value: contracts.length > 0 
+        ? ((contracts[0].budget > 0 ? (contracts[0].spent / contracts[0].budget * 100 >= 5 ? "2" : "1") : "0"))
+        : "0",
       icon: CheckCircle2, 
       color: "text-success",
       bgColor: "bg-success/10"

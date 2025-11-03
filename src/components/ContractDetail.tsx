@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
+import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 
 interface ContractDetailProps {
   contractId: string;
@@ -29,6 +30,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: tasks = [], isLoading: tasksLoading } = useContractTasks(CONTRACT_CODE);
   const { data: payments = [], isLoading: paymentsLoading } = usePaymentStates(CONTRACT_CODE);
   const { data: documents = [] } = useContractDocuments(contractId);
+  
+  // Enable real-time updates
+  useRealtimeContract(CONTRACT_CODE);
   
   const handleDownload = async (path: string) => {
     try {

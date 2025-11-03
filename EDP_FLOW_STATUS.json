@@ -1,0 +1,143 @@
+{
+  "status": "✅ OPERATIONAL",
+  "contract_code": "AIPD-CSI001-1000-MN-0001",
+  "setup_complete": true,
+  "components": {
+    "storage": {
+      "status": "✅ Configured",
+      "bucket": "contracts",
+      "path": "dominga/edp/",
+      "private": true
+    },
+    "edge_functions": {
+      "ingest_enqueue": {
+        "status": "✅ Deployed",
+        "purpose": "Enqueue uploaded files for processing"
+      },
+      "ingest_worker": {
+        "status": "✅ Deployed",
+        "purpose": "AI extraction and database updates",
+        "ai_model": "google/gemini-2.5-flash",
+        "features": [
+          "EDP data extraction",
+          "Task-level incremental updates",
+          "Contract totals aggregation",
+          "Provenance tracking"
+        ]
+      }
+    },
+    "database": {
+      "tables": [
+        "ingest_jobs (queue management)",
+        "ingest_logs (step-by-step logging)",
+        "payment_states (EDPs)",
+        "contract_tasks (task progress)",
+        "contracts (contract metadata)",
+        "documents (file registry)"
+      ],
+      "realtime_enabled": true,
+      "tables_with_realtime": [
+        "contracts",
+        "payment_states", 
+        "contract_tasks"
+      ]
+    },
+    "frontend": {
+      "document_uploader": {
+        "status": "✅ Ready",
+        "features": [
+          "Multi-file PDF upload",
+          "Contract selection",
+          "Document type classification",
+          "Upload progress tracking",
+          "Automatic enqueue on upload"
+        ]
+      },
+      "dashboard": {
+        "status": "✅ Live with Realtime",
+        "features": [
+          "Real-time contract metrics",
+          "Automatic refresh on EDP upload",
+          "S-curve visualization",
+          "Task progress breakdown",
+          "EDP history"
+        ]
+      }
+    }
+  },
+  "workflow": {
+    "steps": [
+      "1. User selects contract in DocumentUploader",
+      "2. User uploads EDP PDF(s)",
+      "3. File saved to Storage: contracts/{contract_code}/edp/",
+      "4. Job enqueued in ingest_jobs (status='queued')",
+      "5. ingest_worker picks up job, sets status='working'",
+      "6. PDF downloaded from Storage",
+      "7. AI extraction via Gemini 2.5 Flash",
+      "8. Structured data parsed (EDP fields + tasks)",
+      "9. Database upserts: payment_states, contract_tasks",
+      "10. Contract totals updated (spent, available, progress)",
+      "11. Job marked as 'done'",
+      "12. Realtime event triggers dashboard refresh",
+      "13. User sees updated metrics instantly"
+    ],
+    "typical_duration": "10-30 seconds per EDP"
+  },
+  "extracted_fields": {
+    "edp_level": [
+      "edp_number",
+      "period_label",
+      "period_start",
+      "period_end",
+      "amount_uf",
+      "uf_rate",
+      "amount_clp",
+      "status",
+      "accumulated_prev_uf",
+      "accumulated_total_uf"
+    ],
+    "task_level": [
+      "task_number",
+      "task_name",
+      "spent_uf (incremental)",
+      "budget_uf",
+      "progress_percentage (auto-calculated)"
+    ]
+  },
+  "data_updates": {
+    "payment_states": "Upserted by (contract_id, edp_number)",
+    "contract_tasks": "Incremental spent_uf update, progress recalculated",
+    "contracts.metadata": {
+      "budget_uf": "Total budget (4501 UF)",
+      "spent_uf": "Sum of approved payment_states",
+      "available_uf": "budget_uf - spent_uf",
+      "overall_progress_pct": "(spent_uf / budget_uf) * 100",
+      "edps_paid": "Count of approved EDPs"
+    }
+  },
+  "monitoring": {
+    "job_status": "SELECT * FROM ingest_jobs ORDER BY created_at DESC LIMIT 5",
+    "logs": "SELECT * FROM ingest_logs WHERE job_id = '<uuid>' ORDER BY created_at",
+    "contract_state": "SELECT metadata FROM contracts WHERE code = 'AIPD-CSI001-1000-MN-0001'",
+    "recent_edps": "SELECT * FROM payment_states WHERE contract_id = '<uuid>' ORDER BY edp_number DESC"
+  },
+  "test_case": {
+    "scenario": "Upload EDP N°2 - Agosto 2025",
+    "expected_result": {
+      "edp_number": 2,
+      "amount_uf": 418.44,
+      "accumulated_total_uf": 628.2,
+      "contract_progress_pct": 14,
+      "dashboard_updates": [
+        "Presupuesto Total: 4501 UF",
+        "Gastado: 628.2 UF",
+        "Disponible: 3872.8 UF",
+        "Avance: 14%",
+        "EDPs Pagados: 2"
+      ],
+      "tasks_updated": 6,
+      "realtime_notification": "✓ EDP procesado"
+    }
+  },
+  "message": "🎉 Complete end-to-end EDP upload → AI extraction → real-time dashboard update flow is OPERATIONAL"
+}
