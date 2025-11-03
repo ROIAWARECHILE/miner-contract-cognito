@@ -128,7 +128,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-thinking-exp', // More powerful model for complex visual analysis
+        model: 'google/gemini-2.5-flash', // Fast multimodal model for PDF analysis
         messages: [
           { 
             role: 'system', 
@@ -221,12 +221,12 @@ serve(async (req) => {
     const aiResult = await aiResponse.json();
     const extracted = JSON.parse(aiResult.choices[0].message.content);
 
-    await supabase.from('ingest_logs').insert({
-      job_id: job.id,
-      step: 'extract',
-      message: 'AI extraction completed',
-      meta: { document_type: extracted.document_type, model_used: 'gemini-2.0-flash-thinking' }
-    });
+        await supabase.from('ingest_logs').insert({
+          job_id: job.id,
+          step: 'extract',
+          message: 'AI extraction completed',
+          meta: { document_type: extracted.document_type, model_used: 'gemini-2.5-flash' }
+        });
 
     await processExtractedData(supabase, job, extracted, arrayBuffer, filename, docType);
 
