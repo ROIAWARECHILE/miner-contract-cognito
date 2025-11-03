@@ -11,18 +11,17 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
-    
-    const supabase = createClient(supabaseUrl, supabaseKey);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+  
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  let job: any = null;
 
+  try {
     // Check if a specific job_id was provided
     const body = req.method === 'POST' ? await req.json() : {};
     const specificJobId = body.job_id;
-
-    let job;
     if (specificJobId) {
       // Process specific job
       const { data: specificJob, error: specificError } = await supabase
@@ -214,6 +213,29 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in ingest-worker:', error);
+    
+    // Mark job as failed if we have job info
+    if (job?.id) {
+      try {
+        await supabase
+          .from('ingest_jobs')
+          .update({ 
+            status: 'failed',
+            last_error: error instanceof Error ? error.message : String(error),
+            updated_at: new Date().toISOString() 
+          })
+          .eq('id', job.id);
+        
+        await supabase.from('ingest_logs').insert({
+          job_id: job.id,
+          step: 'error',
+          message: error instanceof Error ? error.message : String(error),
+          meta: { error: true }
+        });
+      } catch (updateError) {
+        console.error('Failed to update job status:', updateError);
+      }
+    }
     
     return new Response(
       JSON.stringify({ 
