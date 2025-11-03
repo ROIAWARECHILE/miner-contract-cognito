@@ -1,4 +1,4 @@
-import { Search, Upload, Bell } from "lucide-react";
+import { Search, Upload, Bell, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -6,10 +6,20 @@ import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export const Header = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,6 +27,12 @@ export const Header = () => {
       toast.info(`Buscando: "${searchQuery}"`);
       // Aquí iría la lógica de búsqueda real
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast.success('Sesión cerrada exitosamente');
+    navigate('/auth');
   };
 
   return (
@@ -74,22 +90,43 @@ export const Header = () => {
           </Button>
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-full"
-          onClick={() => {
-            toast.info("Perfil de usuario", {
-              description: "Juan Delgado - Administrador"
-            });
-          }}
-        >
-          <Avatar className="w-9 h-9 border-2 border-primary/20">
-            <AvatarFallback className="bg-gradient-to-br from-primary to-primary-glow text-primary-foreground font-semibold">
-              JD
-            </AvatarFallback>
-          </Avatar>
-        </Button>
+        {user ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+              >
+                <Avatar className="w-9 h-9 border-2 border-primary/20">
+                  <AvatarFallback className="bg-gradient-to-br from-primary to-primary-glow text-primary-foreground font-semibold">
+                    {user.email?.charAt(0).toUpperCase() || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">{user.email}</p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    Usuario autenticado
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut}>
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Cerrar sesión</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => navigate('/auth')}>
+            <User className="mr-2 h-4 w-4" />
+            Iniciar Sesión
+          </Button>
+        )}
       </div>
     </header>
   );
