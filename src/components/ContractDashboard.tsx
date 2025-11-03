@@ -1,7 +1,12 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2, Upload } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { useState } from "react";
+import { useContracts } from "@/hooks/useContract";
 
 interface ContractDashboardProps {
   onSelectContract: (id: string) => void;
@@ -9,8 +14,57 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
-  // Mock data - will be replaced with Supabase queries
-  const contracts = [
+  const [isProcessing, setIsProcessing] = useState(false);
+  const { data: contractsData, isLoading, refetch } = useContracts();
+
+  const handleProcessDocuments = async () => {
+    setIsProcessing(true);
+    toast.info("Iniciando procesamiento de documentos desde Storage...");
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('process-dominga-documents');
+      
+      if (error) throw error;
+      
+      console.log('Document processing result:', data);
+      
+      if (data?.log) {
+        const successCount = data.log.filter((l: any) => l.type === 'ingest' || l.type === 'update').length;
+        const errorCount = data.log.filter((l: any) => l.type === 'error').length;
+        
+        if (errorCount > 0) {
+          toast.warning(`Procesamiento completado con ${errorCount} errores. ${successCount} acciones realizadas.`);
+        } else {
+          toast.success(`¡Procesamiento exitoso! ${successCount} acciones realizadas.`);
+        }
+      } else {
+        toast.success("Documentos procesados correctamente");
+      }
+      
+      // Refresh data
+      await refetch();
+    } catch (error) {
+      console.error('Error processing documents:', error);
+      toast.error("Error al procesar documentos: " + (error as Error).message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Use real data if available, otherwise fallback to mock
+  const contracts = contractsData?.length ? contractsData.map(c => ({
+    id: c.id,
+    code: c.code,
+    title: c.title,
+    client: (c.metadata as any)?.client || "Cliente",
+    contractor: (c.metadata as any)?.contractor || "Contratista",
+    status: c.status,
+    progress: Math.round(((c.metadata as any)?.overall_progress_pct || 0)),
+    budget: (c.metadata as any)?.budget_uf || c.contract_value || 0,
+    spent: (c.metadata as any)?.spent_uf || 0,
+    slaStatus: "warning",
+    nextDeadline: "Rev.0 - 3 días restantes",
+  })) : [
     {
       id: "1",
       code: "AIPD-CSI001-1000-MN-0001",
@@ -29,14 +83,14 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
   const stats = [
     { 
       label: "Contratos Activos", 
-      value: "1", 
+      value: contracts.length.toString(), 
       icon: FileText, 
       color: "text-primary",
       bgColor: "bg-primary/10"
     },
     { 
       label: "Progreso Promedio", 
-      value: "5%", 
+      value: `${Math.round(contracts.reduce((acc, c) => acc + c.progress, 0) / contracts.length)}%`, 
       icon: TrendingUp, 
       color: "text-success",
       bgColor: "bg-success/10"
@@ -76,11 +130,22 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
-        <p className="text-muted-foreground">
-          Gestión inteligente de contratos mineros con IA
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
+          <p className="text-muted-foreground">
+            Gestión inteligente de contratos mineros con IA
+          </p>
+        </div>
+        <Button 
+          onClick={handleProcessDocuments}
+          disabled={isProcessing}
+          variant="outline"
+          className="gap-2"
+        >
+          <Upload className="h-4 w-4" />
+          {isProcessing ? "Procesando..." : "Procesar PDFs de Storage"}
+        </Button>
       </div>
 
       {/* Stats Grid */}

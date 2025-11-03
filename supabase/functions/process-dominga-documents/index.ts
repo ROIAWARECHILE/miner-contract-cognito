@@ -232,12 +232,21 @@ async function extractDocument(
     }
 
     const extractedData = JSON.parse(jsonStr);
+    
+    // Add comprehensive provenance
     extractedData.provenance = {
       bucket_path: 'contracts',
       filename: filename,
       storage_path: filePath,
-      extracted_at: new Date().toISOString()
+      extracted_at: new Date().toISOString(),
+      extraction_method: 'ai_vision',
+      model: 'google/gemini-2.5-flash'
     };
+
+    // Check for low confidence fields and log warnings
+    if (extractedData.low_confidence_fields && extractedData.low_confidence_fields.length > 0) {
+      console.warn(`Low confidence fields detected in ${filename}:`, extractedData.low_confidence_fields);
+    }
 
     return { data: extractedData };
   } catch (error) {
@@ -247,97 +256,148 @@ async function extractDocument(
 }
 
 function getSystemPrompt(documentType: string): string {
-  const basePrompt = `You are a contract data extraction specialist for Chilean mining projects. Extract information with precision, handling Spanish terminology correctly.
+  const basePrompt = `You are ContractOS - an autonomous contract data extraction specialist for Chilean mining projects.
+Extract information with MAXIMUM precision. Every value must be exact and traceable.
 
-Key Chilean mining terms:
-- "Estado de Pago" / "EDP" = Payment State
-- "Periodo" = Period (format: "Jul-25" means July 2025)
-- "Monto UF" = Amount in UF (Unidad de Fomento)
-- "Valor UF" = UF exchange rate
-- "Partidas" / "Tareas" = Tasks/Line items
-- "% Avance" = Progress percentage
+CRITICAL EXTRACTION RULES:
+1. Extract ALL numeric values with FULL decimal precision (e.g., 209.81, never round to 209.8)
+2. Dates MUST be ISO format: YYYY-MM-DD
+3. For periods like "Jul-25": period_start="2025-07-01", period_end="2025-07-31", period_label="Jul-25"
+4. Contract code is ALWAYS: "AIPD-CSI001-1000-MN-0001"
+5. Use dot (.) as decimal separator, never comma
+6. Return ONLY valid JSON, no markdown code blocks
+7. Include confidence_by_field with 0-1 scores for each critical field
+8. If confidence < 0.75 on any field, mark it in low_confidence_fields array
+
+Spanish mining terminology:
+- "Estado de Pago" / "EDP" = Payment State document
+- "N° EDP" or "EDP N°" = EDP number
+- "Período" / "Periodo" = Time period
+- "Monto UF" = Amount in UF (Unidad de Fomento - Chilean inflation-indexed unit)
+- "Valor UF" = UF exchange rate to CLP
+- "Monto CLP" / "$" = Amount in Chilean Pesos
+- "Partidas" / "Tareas" / "Actividades" = Tasks/Activities/Line items
+- "% Avance" / "Avance %" = Progress percentage
 - "Presupuesto" = Budget
-- "Cliente" = Client
-- "Contratista" = Contractor
-
-CRITICAL RULES:
-1. Extract ALL numeric values with full precision (e.g., 209.81, not 209.8)
-2. Dates in ISO format: YYYY-MM-DD
-3. For periods like "Jul-25", convert to period_start: "2025-07-01", period_end: "2025-07-31"
-4. Contract code: AIPD-CSI001-1000-MN-0001
-5. Return ONLY valid JSON, no markdown formatting
-6. Include ALL fields from schema, use null if not found`;
+- "Gastado" / "Ejecutado" = Spent/Executed
+- "Cliente" = Client company
+- "Contratista" = Contractor company
+- "Vigencia" = Duration/Validity period
+- "Fecha inicio" = Start date`;
 
   const schemas: Record<string, string> = {
     contract: `${basePrompt}
 
-Return JSON matching this schema:
+EXTRACT from Contrato/Proforma with THESE EXACT FIELDS:
 {
   "document_type": "contract",
   "contract_code": "AIPD-CSI001-1000-MN-0001",
-  "title": "string",
+  "title": "exact title from document",
   "client": "Andes Iron SpA",
   "contractor": "Itasca Chile SpA",
-  "budget_uf": number,
-  "start_date": "YYYY-MM-DD",
-  "end_date": "YYYY-MM-DD or null",
-  "tasks": [{"code": "string", "name": "string", "budget_uf": number}]
-}`,
+  "budget_uf": 4501 (total budget number),
+  "start_date": "2025-07-21" (ISO format),
+  "end_date": null or "YYYY-MM-DD",
+  "tasks": [
+    {"task_number": "1.1", "name": "Recopilación y análisis de información", "budget_uf": 507},
+    {"task_number": "2.0", "name": "Visita a terreno", "budget_uf": 216},
+    ... (extract ALL tasks with exact task numbers and names)
+  ],
+  "kpis_plan": {
+    "s_curve_plan": [
+      {"month": "2025-07", "cum_plan_percent": 4},
+      {"month": "2025-08", "cum_plan_percent": 12},
+      ... (extract planned cumulative percentages by month)
+    ]
+  },
+  "confidence_by_field": {
+    "budget_uf": 0.95,
+    "start_date": 0.90,
+    "tasks": 0.85
+  },
+  "low_confidence_fields": []
+}
+
+VERIFICATION: Sum of all task budgets MUST equal budget_uf (±1 UF tolerance)`,
+
     edp: `${basePrompt}
 
-Return JSON matching this schema:
+EXTRACT from Estado de Pago (EDP) with THESE EXACT FIELDS:
 {
   "document_type": "edp",
   "contract_code": "AIPD-CSI001-1000-MN-0001",
-  "edp_number": number,
-  "period_label": "Jul-25",
-  "period_start": "2025-07-01",
-  "period_end": "2025-07-31",
-  "amount_uf": number with decimals,
-  "uf_rate": number with decimals,
-  "amount_clp": number,
-  "status": "approved",
+  "edp_number": 1 (extract from "EDP N°" or "N° EDP"),
+  "period_label": "Jul-25" (keep original format),
+  "period_start": "2025-07-01" (ISO format),
+  "period_end": "2025-07-31" (ISO format),
+  "amount_uf": 209.81 (total EDP amount with FULL decimals),
+  "uf_rate": 39179.01 (UF exchange rate with FULL decimals),
+  "amount_clp": 8219991 (total in Chilean pesos),
+  "status": "approved" (or "submitted", "draft", "rejected"),
+  "approval_date": null or "YYYY-MM-DD",
   "tasks_executed": [
     {
       "task_number": "1.1",
-      "name": "string",
-      "budget_uf": number,
-      "spent_uf": number with decimals,
-      "progress_pct": number (0-100)
-    }
-  ]
-}`,
+      "name": "Recopilación y análisis de información",
+      "budget_uf": 507,
+      "spent_uf": 147.85,
+      "progress_pct": 29
+    },
+    ... (extract ALL tasks that have spent > 0)
+  ],
+  "confidence_by_field": {
+    "edp_number": 0.99,
+    "amount_uf": 0.95,
+    "tasks_executed": 0.90
+  },
+  "low_confidence_fields": []
+}
+
+VERIFICATION: Sum of tasks_executed[].spent_uf MUST equal amount_uf (±0.5 UF tolerance)
+CRITICAL: Look for tables with columns: Tarea/Actividad, % Avance, Monto UF, UF Gastado`,
+
     plan_calidad: `${basePrompt}
 
-Return JSON for quality plan:
+Return JSON for Plan de Aseguramiento de Calidad:
 {
   "document_type": "plan_calidad",
   "contract_code": "AIPD-CSI001-1000-MN-0001",
-  "title": "string",
-  "version": "string",
-  "policy_refs": ["string"],
-  "responsibles": [{"name": "string", "role": "string"}]
+  "title": "exact document title",
+  "version": "R0" or "Rev.0",
+  "policy_refs": ["ISO standards", "company policies"],
+  "responsibles": [{"name": "person name", "role": "title/position"}],
+  "review_dates": ["2025-MM-DD"],
+  "confidence_by_field": {"title": 0.95},
+  "low_confidence_fields": []
 }`,
+
     plan_sso: `${basePrompt}
 
-Return JSON for SSO plan:
+Return JSON for Plan de SSO (Seguridad y Salud Ocupacional):
 {
   "document_type": "plan_sso",
   "contract_code": "AIPD-CSI001-1000-MN-0001",
-  "title": "string",
-  "version": "string",
-  "policy_refs": ["string"],
-  "responsibles": [{"name": "string", "role": "string"}]
+  "title": "exact document title",
+  "version": "R0" or "Rev.0",
+  "policy_refs": ["safety regulations", "company policies"],
+  "responsibles": [{"name": "person name", "role": "title/position"}],
+  "review_dates": ["2025-MM-DD"],
+  "confidence_by_field": {"title": 0.95},
+  "low_confidence_fields": []
 }`,
+
     plan_tecnico: `${basePrompt}
 
-Return JSON for technical plan:
+Return JSON for Plan Técnico / Estudio Técnico:
 {
   "document_type": "plan_tecnico",
   "contract_code": "AIPD-CSI001-1000-MN-0001",
-  "title": "string",
-  "version": "string",
-  "scope": "string"
+  "title": "exact document title",
+  "version": "R0" or "Rev.0",
+  "scope": "brief description of technical scope",
+  "responsibles": [{"name": "person name", "role": "title/position"}],
+  "confidence_by_field": {"title": 0.95},
+  "low_confidence_fields": []
 }`
   };
 
@@ -402,13 +462,22 @@ async function processExtractedData(
         for (const task of extractedData.tasks) {
           await supabaseClient.from('contract_tasks').upsert({
             contract_id: contractId,
-            task_number: task.code,
+            task_number: task.task_number || task.code, // Handle both formats
             task_name: task.name,
             budget_uf: task.budget_uf,
             spent_uf: 0,
             progress_percentage: 0
           }, { onConflict: 'contract_id,task_number' });
         }
+        log.push({ type: 'ingest', message: `Created ${extractedData.tasks.length} tasks` });
+      }
+      
+      // Store kpis_plan in metadata if present
+      if (extractedData.kpis_plan) {
+        await supabaseClient
+          .from('contracts')
+          .update({ metadata: { ...extractedData, budget_uf: extractedData.budget_uf } })
+          .eq('id', contractId);
       }
     } else {
       throw new Error(`Contract ${extractedData.contract_code} not found`);
@@ -450,7 +519,7 @@ async function processExtractedData(
       }
     }
 
-    // Record document
+    // Record document with extracted data and provenance
     await supabaseClient.from('documents').upsert({
       contract_id: contractId,
       filename: filename,
@@ -458,6 +527,16 @@ async function processExtractedData(
       doc_type: 'original',
       checksum: filePath
     }, { onConflict: 'contract_id,filename' });
+    
+    log.push({ type: 'ingest', message: `Recorded document: ${filename}` });
+    
+    // Create review alerts for low confidence fields
+    if (extractedData.low_confidence_fields && extractedData.low_confidence_fields.length > 0) {
+      const alertMessage = `Low confidence extraction in ${filename}: ${extractedData.low_confidence_fields.join(', ')}`;
+      log.push({ type: 'alert', message: alertMessage });
+      
+      // Note: Would insert into sla_alerts table here, but keeping simple for now
+    }
 
     return { upserts, log };
   } catch (error) {
