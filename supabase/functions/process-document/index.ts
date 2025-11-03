@@ -1006,23 +1006,72 @@ serve(async (req) => {
         data: structured
       }, { onConflict: "contract_id,edp_number" });
 
-      // Upsert contract_tasks with normalized task_number
-      if (structured.tasks_executed && Array.isArray(structured.tasks_executed)) {
-        for (const task of structured.tasks_executed) {
-          const normalizedNumber = normalizeTaskNumber(task.task_number || '', task.name || '');
+      // ✅ FASE 2: Recalcular contract_tasks desde TODOS los EDPs (Opción B - más segura)
+      console.log(`[process-document] Recalculating contract_tasks from ALL EDPs for contract ${contract.id}...`);
+      
+      // 1. Obtener TODOS los EDPs del contrato (approved + submitted)
+      const { data: allEdps, error: edpsFetchError } = await supabase
+        .from("payment_states")
+        .select("data")
+        .eq("contract_id", contract.id)
+        .in("status", ["approved", "submitted"]);
+      
+      if (edpsFetchError) {
+        console.error(`[process-document] Error fetching EDPs for accumulation:`, edpsFetchError);
+        throw new Error(`Failed to fetch EDPs: ${edpsFetchError.message}`);
+      }
+      
+      // 2. Acumular spent_uf por tarea desde todos los EDPs
+      const taskAccumulator: Record<string, { 
+        spent_uf: number; 
+        budget_uf: number; 
+        name: string 
+      }> = {};
+      
+      for (const edp of allEdps || []) {
+        const tasks = (edp.data as any)?.tasks_executed || [];
+        for (const task of tasks) {
+          const taskNum = normalizeTaskNumber(task.task_number || '', task.name || '');
           
-          if (normalizedNumber) {
-            await supabase.from("contract_tasks").upsert({
-              contract_id: contract.id,
-              task_number: normalizedNumber,
-              task_name: task.name,
-              budget_uf: task.budget_uf || 0,
-              spent_uf: task.spent_uf || 0,
-              progress_percentage: task.progress_pct || 0
-            }, { onConflict: "contract_id,task_number", ignoreDuplicates: false });
+          if (!taskNum) continue;
+          
+          if (!taskAccumulator[taskNum]) {
+            taskAccumulator[taskNum] = {
+              spent_uf: 0,
+              budget_uf: parseFloat(task.budget_uf) || 0,
+              name: task.name || ''
+            };
           }
+          taskAccumulator[taskNum].spent_uf += parseFloat(task.spent_uf) || 0;
         }
       }
+      
+      // 3. Actualizar contract_tasks con totales acumulados
+      for (const [taskNumber, totals] of Object.entries(taskAccumulator)) {
+        const progressPct = totals.budget_uf > 0 
+          ? Math.round((totals.spent_uf / totals.budget_uf) * 100) 
+          : 0;
+        
+        const { error: taskError } = await supabase
+          .from("contract_tasks")
+          .upsert({
+            contract_id: contract.id,
+            task_number: taskNumber,
+            task_name: totals.name,
+            budget_uf: totals.budget_uf,
+            spent_uf: totals.spent_uf,
+            progress_percentage: progressPct,
+          }, {
+            onConflict: "contract_id,task_number",
+            ignoreDuplicates: false
+          });
+        
+        if (taskError) {
+          console.error(`[process-document] Error upserting task ${taskNumber}:`, taskError);
+        }
+      }
+      
+      console.log(`[process-document] Successfully recalculated ${Object.keys(taskAccumulator).length} tasks from ${allEdps?.length || 0} EDPs`);
 
       // Refresh contract metrics
       await supabase.rpc("refresh_contract_metrics", { 
