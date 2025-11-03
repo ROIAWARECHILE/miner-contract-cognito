@@ -12,6 +12,7 @@ const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor. Your job is to
 IMPORTANT PRINCIPLES
 - Never invent task names or numbers.
 - Always normalize each row to the contract's canonical task_number and name using the provided catalog.
+- The "period" field is MANDATORY - extract with high precision.
 - Only return VALID JSON (no prose). All numeric values are decimals with dot separator.
 
 INPUTS PROVIDED
@@ -25,7 +26,7 @@ From parsed_json (table usually titled "TAREA" with a "Total" UF column, plus he
 {
   "contract_code": "<contract_code>",
   "edp_number": <int>,
-  "period": "<Mon-YYYY>",
+  "period": "<Mon-YY>",  // CRITICAL: e.g., "Jul-25", "Ago-25", "Sep-25"
   "uf_rate": <number>,
   "amount_uf": <number>,
   "amount_clp": <integer>,
@@ -37,15 +38,41 @@ From parsed_json (table usually titled "TAREA" with a "Total" UF column, plus he
   ]
 }
 
+PERIOD EXTRACTION RULES (CRITICAL):
+- Search in the top 30% of the document for: "Período:", "Periodo:", "MES:", "PERIODO FACTURADO:" or similar
+- The period is usually near the title or metadata section
+- Format as "MMM-YY" (e.g., "Jul-25", "Ago-25", "Sep-25")
+- If found as date range (e.g., "01/07/2025 - 31/07/2025"), convert to "Jul-25"
+- If found as month name (e.g., "Julio 2025" or "JULIO/2025"), convert to "Jul-25"
+- If found as "08/2025" or "08-2025", convert to "Ago-25"
+- Spanish months: Enero→Ene, Febrero→Feb, Marzo→Mar, Abril→Abr, Mayo→May, Junio→Jun, Julio→Jul, Agosto→Ago, Septiembre→Sep, Octubre→Oct, Noviembre→Nov, Diciembre→Dic
+- If you cannot find it with certainty, set "meta.review_required": true and "meta.warnings": ["Period not found"]
+
 CANONICAL TASK NORMALIZATION RULES
+
+SPECIAL HANDLING FOR TASK 1.2 (Visita a terreno):
+- Task 1.2 is "Visita a terreno" (Site visit)
+- It often appears WITHOUT an explicit number in the document table
+- Look for these patterns:
+  * A row with text "Visita a terreno", "Visita técnica", "Visita de campo"
+  * A row between task 1 and task 2 without a clear number
+  * Keywords: "visita", "terreno", "campo"
+- If you find such a row, ALWAYS map it to task_number "1.2"
+- NEVER skip task 1.2 even if it lacks a number in the first column
+
+GENERAL TASK MAPPING:
 1) The "tasks_map" is the source of truth for names. The output "name" MUST come from tasks_map[task_number].
-2) Detect a row's raw number from the first cell if it starts with a number pattern: ^(\\d+(?:\\.\\d+)?)\\s*[-–]
-   - If raw_number == "1" and there is another row with "1.2" in this EDP, normalize raw "1" to "1.1".
-   - If raw_number is an integer X and tasks_map contains "X.0", normalize to "X.0".
-3) If the row has no explicit number, resolve by semantic similarity against tasks_map values (high-confidence only, ≥0.90). If no confident match, EXCLUDE the row.
-4) Omit rows where the "Total" UF equals zero.
-5) budget_uf: if budget for that task appears in the header table or is known by context, include it; otherwise use null.
-6) Merge duplicate rows that map to the same task_number by summing their UF in spent_uf.
+2) Detect a row's raw number from the first cell if it starts with a number pattern.
+3) If the document uses ".0" decimals (like "1.0", "2.0"), remove the .0 EXCEPT for 1.2.
+   - "1" or "1.0" → task_number "1" (Recopilación y análisis)
+   - "1.2" → task_number "1.2" (Visita a terreno) ← ALWAYS KEEP
+   - "2" or "2.0" → task_number "2" (Actualización estudio hidrológico)
+   - "3" or "3.0" → task_number "3"
+   - Continue for 4-9
+4) If a row has no explicit number, try semantic matching against tasks_map (≥0.90 confidence only).
+5) Omit rows where the "Total" UF equals zero.
+6) budget_uf: include if known from document; otherwise use null.
+7) Merge duplicate rows that map to the same task_number by summing spent_uf.
 
 VALIDATION & CONSISTENCY
 - Perform two checks:
@@ -59,7 +86,7 @@ Return ONLY this JSON object (no markdown, no commentary):
 {
   "contract_code": "...",
   "edp_number": 2,
-  "period": "Ago-2025",
+  "period": "Ago-25",  // MANDATORY
   "uf_rate": 39383.07,
   "amount_uf": 418.44,
   "amount_clp": 16479349,
@@ -73,13 +100,17 @@ Return ONLY this JSON object (no markdown, no commentary):
       "accum_prev_plus_current_equals_total": true|false
     },
     "review_required": true|false,
-    "notes": []
+    "warnings": [],  // list of extraction warnings
+    "confidence": {
+      "period": <0-1>,
+      "tasks": <0-1>
+    }
   }
 }
 
 ROBUSTNESS NOTES
 - Normalize thousand/decimal separators (e.g., "16.479.349" → 16479349; "418,44" → 418.44).
-- If multiple "TAREA" tables exist, choose the one with a "Total" UF column and largest number of non-zero rows.
+- If multiple "TAREA" tables exist, choose the one with a "Total" UF column and most non-zero rows.
 - Ignore administrative footers, headers, watermarks, and logos.
 
 Return only the final JSON object.`;
@@ -449,6 +480,32 @@ ${parsedText}`;
 
     console.log(`[process-document] OpenAI extraction completed`);
 
+    // Validate extraction quality for EDP documents
+    if (document_type === "edp") {
+      if (structured.tasks_executed && structured.tasks_executed.length > 0) {
+        const hasTask1 = structured.tasks_executed.some((t: any) => t.task_number === '1');
+        const hasTask12 = structured.tasks_executed.some((t: any) => t.task_number === '1.2');
+        const hasTask2 = structured.tasks_executed.some((t: any) => t.task_number === '2');
+        
+        // If there's task 1 and task 2, but no 1.2, log warning
+        if ((hasTask1 || hasTask2) && !hasTask12) {
+          console.warn(`[process-document] ⚠️ Task 1.2 (Visita a terreno) not found in EDP #${structured.edp_number}`);
+          structured.meta = structured.meta || {};
+          structured.meta.warnings = structured.meta.warnings || [];
+          structured.meta.warnings.push("Task 1.2 (Visita a terreno) not detected - verify manually");
+        }
+      }
+
+      // Validate that period is present
+      if (!structured.period || structured.period === '' || structured.period === 'null') {
+        console.warn(`[process-document] ⚠️ Period not extracted from EDP #${structured.edp_number}`);
+        structured.meta = structured.meta || {};
+        structured.meta.review_required = true;
+        structured.meta.warnings = structured.meta.warnings || [];
+        structured.meta.warnings.push("Period field is missing or empty");
+      }
+    }
+
     // Step 4.5: For contract documents, get or create the contract
     if (document_type === "contract" && !contract) {
       const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
@@ -518,10 +575,11 @@ ${parsedText}`;
 
     // Step 5: Upsert into business tables (document_type specific)
     if (document_type === "edp" && contract && contract.id) {
-      // Upsert payment state
+      // Upsert payment state with period_label
       await supabase.from("payment_states").upsert({
         contract_id: contract.id,
         edp_number: structured.edp_number,
+        period_label: structured.period || null,  // Extract period from structured data
         amount_uf: structured.amount_uf,
         amount_clp: structured.amount_clp,
         uf_rate: structured.uf_rate,
@@ -529,27 +587,59 @@ ${parsedText}`;
         data: structured
       }, { onConflict: "contract_id,edp_number" });
 
-      console.log(`[process-document] Payment state upserted`);
+      console.log(`[process-document] Payment state upserted with period: ${structured.period || 'N/A'}`);
 
-      // Función auxiliar para normalizar task_numbers
+      // Función auxiliar para normalizar task_numbers (fortalecida)
       const normalizeTaskNumber = (taskNumber: string, taskName: string): string => {
-        // Si es ".0" al final y no es "1.2", eliminar el .0
-        if (taskNumber.endsWith('.0') && taskNumber !== '1.2') {
+        // Special case: Detect "Visita a terreno" even without a number
+        if (!taskNumber || taskNumber === '' || taskNumber === 'undefined' || taskNumber === 'null') {
+          const nameLower = taskName.toLowerCase();
+          if ((nameLower.includes('visita') && (nameLower.includes('terreno') || nameLower.includes('campo'))) ||
+              nameLower.includes('visita técnica') || nameLower.includes('site visit')) {
+            console.log(`[normalizeTaskNumber] Detected task 1.2 by name: "${taskName}"`);
+            return '1.2';
+          }
+        }
+        
+        // If already "1.2", keep it
+        if (taskNumber === '1.2') {
+          return '1.2';
+        }
+        
+        // Remove .0 suffix except for 1.2
+        if (taskNumber.endsWith('.0')) {
           return taskNumber.replace('.0', '');
         }
         
-        // Casos especiales basados en el nombre de la tarea
-        if (taskName.includes('Recopilación y análisis')) {
-          return '1';
-        }
-        if (taskName.includes('Actualización del estudio hidrológico') && !taskName.includes('calibración')) {
-          return '2';
-        }
-        if (taskName.includes('Reuniones y presentaciones') && !taskName.includes('Administración')) {
-          return '8';
-        }
-        if (taskName.includes('Costos Administración')) {
-          return '9';
+        // Explicit name-to-number mapping as fallback
+        const nameToNumber: Record<string, string> = {
+          'recopilación y análisis': '1',
+          'recopilacion y analisis': '1',
+          'visita a terreno': '1.2',
+          'visita técnica': '1.2',
+          'visita de campo': '1.2',
+          'actualización del estudio hidrológico': '2',
+          'actualizacion del estudio hidrologico': '2',
+          'revisión experta': '3',
+          'revision experta': '3',
+          'actualización y calibración': '4',
+          'actualizacion y calibracion': '4',
+          'análisis de condiciones': '5',
+          'analisis de condiciones': '5',
+          'simulaciones predictivas': '6',
+          'asesoría técnica': '7',
+          'asesoria tecnica': '7',
+          'reuniones y presentaciones': '8',
+          'costos administración': '9',
+          'costos administracion': '9'
+        };
+        
+        const nameLower = taskName.toLowerCase();
+        for (const [key, value] of Object.entries(nameToNumber)) {
+          if (nameLower.includes(key)) {
+            console.log(`[normalizeTaskNumber] Mapped "${taskName}" → ${value}`);
+            return value;
+          }
         }
         
         return taskNumber;
