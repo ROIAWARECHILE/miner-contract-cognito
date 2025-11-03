@@ -20,9 +20,21 @@ export const Header = () => {
 
       {/* Actions */}
       <div className="flex items-center gap-3">
-        <Button variant="default" size="sm" className="gap-2 shadow-md hover:shadow-lg transition-spring">
+        <Button 
+          variant="ghost" 
+          size="sm"
+          onClick={() => window.location.href = '/'}
+        >
+          Dashboard
+        </Button>
+        <Button 
+          variant="default" 
+          size="sm" 
+          className="gap-2 shadow-md hover:shadow-lg transition-spring"
+          onClick={() => window.location.href = '/documents'}
+        >
           <Upload className="w-4 h-4" />
-          <span className="font-medium">Cargar Documento</span>
+          <span className="font-medium">Documentos</span>
         </Button>
 
         <div className="relative">

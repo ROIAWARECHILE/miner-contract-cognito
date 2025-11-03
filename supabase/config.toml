@@ -6,5 +6,8 @@ verify_jwt = false
 [functions.ingest-enqueue]
 verify_jwt = false
 
+[functions.ingest-worker]
+verify_jwt = false
+
 [functions.verify-contract]
 verify_jwt = false

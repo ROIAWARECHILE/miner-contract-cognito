@@ -957,6 +957,80 @@ export type Database = {
         }
         Relationships: []
       }
+      ingest_jobs: {
+        Row: {
+          attempts: number | null
+          created_at: string | null
+          etag: string | null
+          file_hash: string | null
+          id: string
+          last_error: string | null
+          project_prefix: string
+          status: string | null
+          storage_path: string
+          updated_at: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          created_at?: string | null
+          etag?: string | null
+          file_hash?: string | null
+          id?: string
+          last_error?: string | null
+          project_prefix: string
+          status?: string | null
+          storage_path: string
+          updated_at?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          created_at?: string | null
+          etag?: string | null
+          file_hash?: string | null
+          id?: string
+          last_error?: string | null
+          project_prefix?: string
+          status?: string | null
+          storage_path?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      ingest_logs: {
+        Row: {
+          created_at: string | null
+          id: number
+          job_id: string | null
+          message: string | null
+          meta: Json | null
+          step: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          job_id?: string | null
+          message?: string | null
+          meta?: Json | null
+          step?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          job_id?: string | null
+          message?: string | null
+          meta?: Json | null
+          step?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingest_logs_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "ingest_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       obligations: {
         Row: {
           completed_at: string | null
@@ -1498,6 +1572,27 @@ export type Database = {
       delete_contract_cascade: {
         Args: { p_contract_id: string }
         Returns: undefined
+      }
+      get_next_ingest_job: {
+        Args: never
+        Returns: {
+          attempts: number | null
+          created_at: string | null
+          etag: string | null
+          file_hash: string | null
+          id: string
+          last_error: string | null
+          project_prefix: string
+          status: string | null
+          storage_path: string
+          updated_at: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ingest_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       has_any_role: {
         Args: {
