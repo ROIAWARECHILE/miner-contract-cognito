@@ -2003,6 +2003,13 @@ export type Database = {
         | "report"
         | "correspondence"
         | "other"
+        | "contract"
+        | "edp"
+        | "sdi"
+        | "quality"
+        | "sso"
+        | "tech"
+        | "minuta"
       obligation_status:
         | "pending"
         | "in_progress"
@@ -2250,6 +2257,13 @@ export const Constants = {
         "report",
         "correspondence",
         "other",
+        "contract",
+        "edp",
+        "sdi",
+        "quality",
+        "sso",
+        "tech",
+        "minuta",
       ],
       obligation_status: [
         "pending",
