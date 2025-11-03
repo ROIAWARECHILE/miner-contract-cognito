@@ -25,7 +25,10 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
     try {
       const { data, error } = await supabase.functions.invoke('process-dominga-documents');
       
-      if (error) throw error;
+      if (error) {
+        console.error('Edge function error:', error);
+        throw new Error(error.message || 'Error desconocido al invocar la función');
+      }
       
       console.log('Document processing result:', data);
       
@@ -43,10 +46,13 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       }
       
       // Refresh data
-      await refetch();
-    } catch (error) {
+      setTimeout(() => refetch(), 1000);
+    } catch (error: any) {
       console.error('Error processing documents:', error);
-      toast.error("Error al procesar documentos: " + (error as Error).message);
+      const errorMsg = error?.message || 'Error desconocido';
+      toast.error(`Error al procesar documentos: ${errorMsg}`, {
+        description: 'Verifica que los documentos estén en Storage y que las funciones estén desplegadas'
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -61,20 +67,30 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
         body: { contract_code: 'AIPD-CSI001-1000-MN-0001' }
       });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Edge function error:', error);
+        throw new Error(error.message || 'Error desconocido al invocar la función');
+      }
       
       console.log('Verification result:', data);
       
       if (data?.status === 'PASS') {
         toast.success(`✅ Verificación EXITOSA: ${data.summary.pass} checks pasaron`);
-      } else {
-        toast.error(`❌ Verificación FALLÓ: ${data.summary.fail} checks fallaron de ${data.summary.pass + data.summary.fail} totales`);
+      } else if (data?.status === 'FAIL') {
+        toast.error(`❌ Verificación FALLÓ: ${data.summary.fail} checks fallaron de ${data.summary.pass + data.summary.fail} totales`, {
+          description: 'Revisa la consola para más detalles'
+        });
         console.log('Failed checks:', data.checks?.filter((c: any) => c.status === 'FAIL'));
+      } else {
+        toast.warning('Verificación completada con resultado inesperado');
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error verifying contract:', error);
-      toast.error("Error al verificar contrato: " + (error as Error).message);
+      const errorMsg = error?.message || 'Error desconocido';
+      toast.error(`Error al verificar contrato: ${errorMsg}`, {
+        description: 'Verifica que el contrato exista en la base de datos'
+      });
     } finally {
       setIsVerifying(false);
     }

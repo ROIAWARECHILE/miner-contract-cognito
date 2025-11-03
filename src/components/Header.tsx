@@ -5,9 +5,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 export const Header = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,7 +39,7 @@ export const Header = () => {
         <Button 
           variant="ghost" 
           size="sm"
-          onClick={() => window.location.href = '/'}
+          onClick={() => navigate('/')}
         >
           Dashboard
         </Button>
@@ -45,7 +47,7 @@ export const Header = () => {
           variant="default" 
           size="sm" 
           className="gap-2 shadow-md hover:shadow-lg transition-spring"
-          onClick={() => window.location.href = '/documents'}
+          onClick={() => navigate('/documents')}
         >
           <Upload className="w-4 h-4" />
           <span className="font-medium">Documentos</span>

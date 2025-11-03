@@ -46,9 +46,17 @@ export const useContractAnalytics = (contractCode: string) => {
           )
         `)
         .eq('code', contractCode)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+      if (!contract) {
+        return {
+          spent_uf: 0,
+          available_uf: 0,
+          overall_progress_pct: 0,
+          total_budget_uf: 0,
+        } as ContractAnalytics;
+      }
 
       const paymentStates = contract.payment_states || [];
       const spentUf = paymentStates
@@ -68,6 +76,7 @@ export const useContractAnalytics = (contractCode: string) => {
         total_budget_uf: totalBudget,
       } as ContractAnalytics;
     },
+    retry: 1,
   });
 };
 
@@ -79,7 +88,7 @@ export const useContractTasks = (contractCode: string) => {
         .from('contracts')
         .select('id')
         .eq('code', contractCode)
-        .single();
+        .maybeSingle();
 
       if (!contract) return [];
 
@@ -89,10 +98,14 @@ export const useContractTasks = (contractCode: string) => {
         .eq('contract_id', contract.id)
         .order('task_number');
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Error fetching tasks:', error);
+        return [];
+      }
 
       return tasks as ContractTask[];
     },
+    retry: 1,
   });
 };
 
@@ -104,7 +117,7 @@ export const usePaymentStates = (contractCode: string) => {
         .from('contracts')
         .select('id')
         .eq('code', contractCode)
-        .single();
+        .maybeSingle();
 
       if (!contract) return [];
 
@@ -114,10 +127,14 @@ export const usePaymentStates = (contractCode: string) => {
         .eq('contract_id', contract.id)
         .order('edp_number');
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Error fetching payments:', error);
+        return [];
+      }
 
       return payments as PaymentState[];
     },
+    retry: 1,
   });
 };
 

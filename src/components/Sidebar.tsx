@@ -1,5 +1,6 @@
 import { FileText, LayoutDashboard, Bell, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 interface SidebarProps {
   activeView: "dashboard" | "documents" | "alerts";
@@ -7,6 +8,8 @@ interface SidebarProps {
 }
 
 export const Sidebar = ({ activeView, onViewChange }: SidebarProps) => {
+  const navigate = useNavigate();
+  
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { id: "documents", label: "Documentos", icon: FileText },
@@ -58,7 +61,7 @@ export const Sidebar = ({ activeView, onViewChange }: SidebarProps) => {
       {/* Settings */}
       <div className="p-4 border-t border-border">
         <button 
-          onClick={() => window.location.href = '/settings'}
+          onClick={() => navigate('/settings')}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-smooth"
         >
           <Settings className="w-5 h-5" />

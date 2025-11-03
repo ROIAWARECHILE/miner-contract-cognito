@@ -46,10 +46,21 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
 
-  if (analyticsLoading || tasksLoading) {
+  if (analyticsLoading || tasksLoading || paymentsLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <p className="text-muted-foreground">Cargando datos del contrato...</p>
+      </div>
+    );
+  }
+
+  if (!analytics) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center space-y-3">
+          <p className="text-muted-foreground">No se encontraron datos para este contrato</p>
+          <Button onClick={onBack} variant="outline">Volver al Dashboard</Button>
+        </div>
       </div>
     );
   }
