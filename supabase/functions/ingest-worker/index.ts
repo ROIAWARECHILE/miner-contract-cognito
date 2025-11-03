@@ -199,15 +199,31 @@ serve(async (req) => {
       }
     }
 
-    // Prepare content for Gemini based on what we have
-    let userContent: any;
+    // Prepare content for AI based on what we have
+    let aiModel: string;
+    let messages: any[];
+    const systemPrompt = buildSystemPrompt(docType);
     
     if (markdown) {
       // LlamaParse succeeded: send markdown to Gemini
-      userContent = `Filename: ${filename}\n\nAnalyze this ${docType.toUpperCase()} document that has been pre-parsed into Markdown format by LlamaParse.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).\n\nMARKDOWN CONTENT:\n\n${markdown}\n\nExtract structured data according to the JSON schema defined in the system prompt.`;
+      aiModel = 'google/gemini-2.5-flash';
+      messages = [
+        { role: 'system', content: systemPrompt },
+        { 
+          role: 'user', 
+          content: `Filename: ${filename}\n\nAnalyze this ${docType.toUpperCase()} document that has been pre-parsed into Markdown format by LlamaParse.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).\n\nMARKDOWN CONTENT:\n\n${markdown}\n\nExtract structured data according to the JSON schema defined in the system prompt.`
+        }
+      ];
+      
+      await supabase.from('ingest_logs').insert({
+        job_id: job.id,
+        step: 'ai_call_gemini',
+        message: 'Calling Gemini with LlamaParse markdown',
+        meta: { model: aiModel, markdown_length: markdown.length }
+      });
     } else {
-      // Fallback: convert PDF to base64 for Gemini Vision
-      console.log('Converting PDF to base64 for AI vision model, file size:', arrayBuffer.byteLength);
+      // Fallback: send PDF to Claude 3.5 Sonnet (better for documents than Gemini Vision)
+      console.log('Converting PDF to base64 for Claude direct PDF processing, file size:', arrayBuffer.byteLength);
       
       const uint8Array = new Uint8Array(arrayBuffer);
       const chunkSize = 8192;
@@ -219,32 +235,39 @@ serve(async (req) => {
       }
       
       const base64Pdf = btoa(binaryString);
-      console.log('PDF converted to base64, length:', base64Pdf.length);
+      console.log('PDF converted to base64 for Claude, length:', base64Pdf.length);
       
       await supabase.from('ingest_logs').insert({
         job_id: job.id,
-        step: 'parse_pdf_direct',
-        message: `PDF converted to base64 (${base64Pdf.length} chars) for vision analysis`,
-        meta: { pdf_size_bytes: arrayBuffer.byteLength }
+        step: 'ai_call_claude',
+        message: 'LlamaParse unavailable, using Claude 3.5 Sonnet for direct PDF processing',
+        meta: { pdf_size_bytes: arrayBuffer.byteLength, base64_length: base64Pdf.length }
       });
 
-      userContent = [
-        {
-          type: 'text',
-          text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:application/pdf;base64,${base64Pdf}`
-          }
+      aiModel = 'anthropic/claude-3.5-sonnet';
+      messages = [
+        { 
+          role: 'user', 
+          content: [
+            { 
+              type: 'text', 
+              text: systemPrompt + `\n\nFilename: ${filename}\n\nAnalyze this PDF document (${docType.toUpperCase()}) and extract structured data according to the schema.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
+            },
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64Pdf
+              }
+            }
+          ]
         }
       ];
     }
 
-    // Extract structured data with Gemini
-    console.log(`Extracting structured data with Gemini (source: ${parseMethod})`);
-    const systemPrompt = buildSystemPrompt(docType);
+    // Extract structured data with AI
+    console.log(`Extracting structured data with ${aiModel} (source: ${parseMethod})`);
     
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -253,11 +276,8 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent }
-        ],
+        model: aiModel,
+        messages: messages,
         response_format: { type: 'json_object' },
         max_tokens: 8000
       }),
@@ -267,9 +287,10 @@ serve(async (req) => {
       const errorText = await aiResponse.text();
       console.error('AI extraction failed:', errorText);
       
-      // Retry with gemini-2.5-pro if flash fails
+      // Retry with alternate model if initial fails
       if (job.attempts < 2) {
-        console.log('Retrying with gemini-2.5-pro...');
+        const retryModel = markdown ? 'google/gemini-2.5-pro' : 'anthropic/claude-sonnet-4-5';
+        console.log(`Retrying with ${retryModel}...`);
         const retryResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -277,11 +298,8 @@ serve(async (req) => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'google/gemini-2.5-pro',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userContent }
-            ],
+            model: retryModel,
+            messages: messages,
             response_format: { type: 'json_object' },
             max_tokens: 8000
           }),
@@ -297,10 +315,10 @@ serve(async (req) => {
         await supabase.from('ingest_logs').insert({
           job_id: job.id,
           step: 'extract',
-          message: 'AI extraction completed with gemini-2.5-pro (retry)',
+          message: `AI extraction completed with ${retryModel} (retry)`,
           meta: { 
             document_type: extracted.document_type, 
-            model_used: 'gemini-2.5-pro',
+            model_used: retryModel,
             source: parseMethod
           }
         });
@@ -325,8 +343,8 @@ serve(async (req) => {
       message: 'AI extraction completed',
       meta: { 
         document_type: extracted.document_type, 
-        model_used: 'gemini-2.5-flash',
-        source: parseMethod
+        model_used: aiModel,
+        source: markdown ? 'llamaparse_markdown' : 'claude_direct_pdf'
       }
     });
 

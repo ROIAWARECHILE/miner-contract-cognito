@@ -101,7 +101,46 @@ serve(async (req) => {
     const detectedDocType = pathParts.length >= 2 ? pathParts[1] : 'contract';
     console.log('✓ Detected document type from path:', detectedDocType);
 
-    // Create job (on conflict do nothing due to unique constraint)
+    // Check if job already exists (by storage_path unique constraint)
+    const { data: existingJob } = await supabase
+      .from('ingest_jobs')
+      .select('*')
+      .eq('storage_path', storage_path)
+      .single();
+
+    // Auto-repair failed jobs
+    if (existingJob) {
+      if (existingJob.status === 'failed') {
+        console.log(`Auto-repairing failed job for ${storage_path}`);
+        await supabase.from('ingest_jobs').update({
+          status: 'queued',
+          last_error: null,
+          attempts: 0,
+          updated_at: new Date().toISOString()
+        }).eq('id', existingJob.id);
+        
+        return new Response(
+          JSON.stringify({ 
+            message: 'Failed job auto-repaired and requeued', 
+            job_id: existingJob.id,
+            status: 'queued'
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`Job already exists for ${storage_path}, status: ${existingJob.status}`);
+      return new Response(
+        JSON.stringify({ 
+          message: 'Job already exists', 
+          job_id: existingJob.id,
+          status: existingJob.status 
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create new job
     const { data: job, error: jobError } = await supabase
       .from('ingest_jobs')
       .insert({

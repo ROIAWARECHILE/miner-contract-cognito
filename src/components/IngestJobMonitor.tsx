@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useIngestJobs, useIngestLogs } from '@/hooks/useIngestJobs';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, CheckCircle2, XCircle, Clock, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import ProcessPendingJobsButton from './ProcessPendingJobsButton';
-import FixStuckJobButton from './FixStuckJobButton';
-import FixBrokenJobs from './FixBrokenJobs';
+import { supabase } from '@/integrations/supabase/client';
 
 interface IngestJobMonitorProps {
   contractId?: string;
@@ -66,11 +66,7 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
           <Clock className="h-5 w-5" />
           Estado de Procesamiento
         </h3>
-        <div className="flex gap-2">
-          <FixStuckJobButton />
-          <ProcessPendingJobsButton />
-          {contractId && <FixBrokenJobs contractId={contractId} />}
-        </div>
+        <ProcessPendingJobsButton />
       </div>
       
       <div className="space-y-2">
@@ -97,6 +93,27 @@ function JobRow({
   onToggle: () => void;
 }) {
   const { data: logs } = useIngestLogs(job.id);
+  const [retrying, setRetrying] = useState(false);
+
+  const retryJob = async () => {
+    setRetrying(true);
+    try {
+      const { error } = await supabase.from('ingest_jobs').update({
+        status: 'queued',
+        last_error: null,
+        attempts: 0,
+        updated_at: new Date().toISOString()
+      }).eq('id', job.id);
+
+      if (error) throw error;
+      
+      toast.success('✅ Job reiniciado y re-encolado');
+    } catch (error) {
+      toast.error(`❌ Error al reintentar: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    } finally {
+      setRetrying(false);
+    }
+  };
   
   const statusConfig = {
     queued: { icon: Clock, color: 'bg-yellow-500', label: 'En cola' },
@@ -123,9 +140,44 @@ function JobRow({
             </div>
           </div>
           
-          <Badge variant={job.status === 'done' ? 'default' : 'secondary'}>
-            {statusConfig.label}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={job.status === 'done' ? 'default' : 'secondary'}>
+              {statusConfig.label}
+            </Badge>
+            
+            {logs?.some(log => log.step === 'parse_llamaparse_success') && (
+              <Badge variant="outline" className="bg-green-500/10 text-green-700 border-green-500/30 dark:text-green-400">
+                LlamaParse ✓
+              </Badge>
+            )}
+            
+            {logs?.some(log => log.step === 'ai_call_claude') && (
+              <Badge variant="outline" className="bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400">
+                Claude 3.5
+              </Badge>
+            )}
+            
+            {logs?.some(log => log.step === 'ai_call_gemini') && (
+              <Badge variant="outline" className="bg-purple-500/10 text-purple-700 border-purple-500/30 dark:text-purple-400">
+                Gemini
+              </Badge>
+            )}
+            
+            {job.status === 'failed' && (
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  retryJob();
+                }}
+                disabled={retrying}
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${retrying ? 'animate-spin' : ''}`} />
+                Reintentar
+              </Button>
+            )}
+          </div>
         </div>
       </CollapsibleTrigger>
       

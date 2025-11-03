@@ -96,15 +96,40 @@ export default function DocumentsPage() {
 
         {/* Info Banner */}
         <div className="mt-8 bg-primary/5 border border-primary/20 rounded-xl p-6">
-          <h3 className="font-semibold text-foreground mb-2">
-            ℹ️ Proceso automático de ingesta
+          <h3 className="font-semibold text-foreground mb-3">
+            🤖 Procesamiento Inteligente Multi-Capa
           </h3>
-          <div className="text-sm text-muted-foreground space-y-1">
-            <p>• Los documentos se suben al bucket <code className="bg-muted px-1 rounded">contracts/dominga/</code></p>
-            <p>• Se procesan inmediatamente con IA (Gemini 2.5 Pro)</p>
-            <p>• La extracción incluye clasificación, parseo, validación y cálculo de KPIs</p>
-            <p>• Los resultados se actualizan en tiempo real en el dashboard</p>
-            <p>• El procesamiento ocurre en segundo plano sin esperas</p>
+          <div className="text-sm text-muted-foreground space-y-2">
+            <div className="flex items-start gap-2">
+              <span className="font-semibold text-green-600 dark:text-green-400">Capa 1 - LlamaParse:</span>
+              <span>Extrae estructura, tablas y contenido del PDF en formato Markdown</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="font-semibold text-blue-600 dark:text-blue-400">Capa 2 - Gemini/Claude:</span>
+              <span>Analiza el contenido y genera JSON estructurado con validaciones</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="font-semibold text-purple-600 dark:text-purple-400">Capa 3 - Validación:</span>
+              <span>Verifica cifras, cálculos y consistencia de datos automáticamente</span>
+            </div>
+            
+            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+              <p className="font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+                ⚠️ Configuración Importante
+              </p>
+              <p className="text-yellow-700 dark:text-yellow-300 text-xs">
+                Verifica tu API key de LlamaParse en{' '}
+                <a 
+                  href="https://cloud.llamaindex.ai/api-key" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="underline font-semibold hover:text-yellow-900 dark:hover:text-yellow-100"
+                >
+                  cloud.llamaindex.ai
+                </a>
+                {' '}(debe tener formato llx-...). Sin una key válida, el sistema usará Claude 3.5 Sonnet como fallback.
+              </p>
+            </div>
           </div>
         </div>
       </main>

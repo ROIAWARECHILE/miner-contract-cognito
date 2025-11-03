@@ -68,13 +68,19 @@ export default function DocumentUploader({
   async function uploadAll() {
     if (!contractId) {
       setLog(l => ['❌ ERROR CRÍTICO: No hay contrato seleccionado', ...l]);
-      toast.error('⚠️ Debes seleccionar un contrato antes de subir archivos', {
-        duration: 5000
+      toast.error('⚠️ Primero selecciona un contrato en el selector global', {
+        duration: 5000,
+        position: 'top-center'
       });
       return;
     }
     
-    if (!files.length) return;
+    if (!files.length) {
+      toast.error('📄 Selecciona al menos un archivo PDF para subir', {
+        duration: 4000
+      });
+      return;
+    }
     
     setLog(l => [`✓ Iniciando subida con contrato: ${contracts?.find(c => c.id === contractId)?.code}`, ...l]);
     setBusy(true);
@@ -136,7 +142,17 @@ export default function DocumentUploader({
     }
     
     setBusy(false);
-    toast.success(`${done} archivo(s) subido(s) y procesándose con IA`);
+    const failedCount = total - done;
+    
+    if (failedCount > 0) {
+      toast.error(`❌ ${failedCount} archivo(s) fallaron. Revisa los logs en el monitor.`, {
+        duration: 6000
+      });
+    } else {
+      toast.success(`✅ ${done} archivo(s) subidos. Procesando con LlamaParse + IA...`, {
+        duration: 4000
+      });
+    }
   }
 
   // Prevent upload if no contract selected
