@@ -941,6 +941,60 @@ export type Database = {
           },
         ]
       }
+      edp_extracted: {
+        Row: {
+          contract_code: string
+          created_at: string | null
+          edp_number: number
+          id: number
+          structured_json: Json
+        }
+        Insert: {
+          contract_code: string
+          created_at?: string | null
+          edp_number: number
+          id?: number
+          structured_json: Json
+        }
+        Update: {
+          contract_code?: string
+          created_at?: string | null
+          edp_number?: number
+          id?: number
+          structured_json?: Json
+        }
+        Relationships: []
+      }
+      edp_raw_parsed: {
+        Row: {
+          contract_code: string
+          created_at: string | null
+          edp_number: number
+          id: number
+          llama_job_id: string | null
+          parsed_json: Json | null
+          storage_path: string
+        }
+        Insert: {
+          contract_code: string
+          created_at?: string | null
+          edp_number: number
+          id?: number
+          llama_job_id?: string | null
+          parsed_json?: Json | null
+          storage_path: string
+        }
+        Update: {
+          contract_code?: string
+          created_at?: string | null
+          edp_number?: number
+          id?: number
+          llama_job_id?: string | null
+          parsed_json?: Json | null
+          storage_path?: string
+        }
+        Relationships: []
+      }
       extraction_metrics: {
         Row: {
           contract_id: string | null
@@ -1803,6 +1857,10 @@ export type Database = {
           title: string
           type: string
         }[]
+      }
+      refresh_contract_metrics: {
+        Args: { contract_code: string }
+        Returns: undefined
       }
     }
     Enums: {
