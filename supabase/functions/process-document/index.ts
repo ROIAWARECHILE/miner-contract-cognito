@@ -531,20 +531,61 @@ ${parsedText}`;
 
       console.log(`[process-document] Payment state upserted`);
 
-      // Upsert tasks with calculated progress percentage
+      // Upsert tasks with accumulated spent_uf
       for (const task of structured.tasks_executed || []) {
         const budgetUf = parseFloat(task.budget_uf) || 0;
-        const spentUf = parseFloat(task.spent_uf) || 0;
-        const progressPercentage = budgetUf > 0 ? Math.round((spentUf / budgetUf) * 100) : 0;
+        const newSpentUf = parseFloat(task.spent_uf) || 0;
+        const taskNumber = task.task_number; // Mantener task_number original sin normalizar
         
-        await supabase.from("contract_tasks").upsert({
+        // 1. Verificar si este EDP ya fue procesado anteriormente
+        const { data: existingEDP } = await supabase
+          .from("payment_states")
+          .select("id, data")
+          .eq("contract_id", contract.id)
+          .eq("edp_number", structured.edp_number)
+          .single();
+        
+        const isReprocessing = !!existingEDP;
+        
+        // 2. Obtener el gasto acumulado actual de esta tarea ESPECÍFICA
+        const { data: existingTask } = await supabase
+          .from("contract_tasks")
+          .select("spent_uf")
+          .eq("contract_id", contract.id)
+          .eq("task_number", taskNumber)
+          .single();
+        
+        // 3. Si es reprocesamiento, restar el gasto anterior de ESTE EDP para ESTA tarea
+        let previousSpentFromThisEDP = 0;
+        if (isReprocessing && existingEDP?.data?.tasks_executed) {
+          const previousTask = existingEDP.data.tasks_executed.find(
+            (t: any) => t.task_number === taskNumber
+          );
+          previousSpentFromThisEDP = parseFloat(previousTask?.spent_uf || 0);
+        }
+        
+        // 4. Calcular el nuevo total acumulado para ESTA tarea
+        const currentSpentUf = existingTask?.spent_uf || 0;
+        const totalSpentUf = currentSpentUf - previousSpentFromThisEDP + newSpentUf;
+        
+        // 5. Calcular el porcentaje con el total acumulado
+        const progressPercentage = budgetUf > 0 
+          ? Math.round((totalSpentUf / budgetUf) * 100) 
+          : 0;
+        
+        // 6. Upsert con el valor acumulado
+        const { error: upsertError } = await supabase.from("contract_tasks").upsert({
           contract_id: contract.id,
-          task_number: task.task_number,
+          task_number: taskNumber,
           task_name: task.name,
-          spent_uf: spentUf,
+          spent_uf: totalSpentUf,  // VALOR ACUMULADO
           budget_uf: budgetUf,
           progress_percentage: progressPercentage
         }, { onConflict: "contract_id,task_number" });
+        
+        if (upsertError) {
+          console.error(`Error upserting task ${taskNumber}:`, upsertError);
+        }
       }
 
       console.log(`[process-document] Tasks upserted: ${structured.tasks_executed?.length || 0}`);
