@@ -35,9 +35,16 @@ serve(async (req) => {
       throw new Error(`Failed to download file: ${downloadError.message}`);
     }
 
-    // Convert to base64 for AI analysis
+    // Convert to base64 for AI analysis (process in chunks to avoid stack overflow)
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    const base64 = btoa(binary);
     
     console.log('File downloaded, size:', arrayBuffer.byteLength, 'bytes');
 
@@ -75,7 +82,18 @@ Responde en JSON con esta estructura:
           },
           {
             role: 'user',
-            content: `Analiza este documento del contrato. Nombre del archivo: ${fileName}`
+            content: [
+              {
+                type: 'text',
+                text: `Analiza este documento del contrato. Nombre del archivo: ${fileName}`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:application/pdf;base64,${base64}`
+                }
+              }
+            ]
           }
         ]
       })
