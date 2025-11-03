@@ -449,39 +449,60 @@ ${parsedText}`;
 
     console.log(`[process-document] OpenAI extraction completed`);
 
-    // Step 4.5: For contract documents, create the contract if it doesn't exist
+    // Step 4.5: For contract documents, get or create the contract
     if (document_type === "contract" && !contract) {
       const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
       const extractedTitle = structured.title || structured.name || "Contrato sin título";
       
-      console.log(`[process-document] Creating new contract: ${extractedCode}`);
+      console.log(`[process-document] Extracted contract code: ${extractedCode}`);
       
-      const { data: newContract, error: contractCreateError } = await supabase
+      // First, check if contract already exists
+      const { data: existingContract, error: existingError } = await supabase
         .from("contracts")
-        .insert({
-          code: extractedCode,
-          title: extractedTitle,
-          type: "service",
-          status: "draft",
-          metadata: structured
-        })
-        .select()
+        .select("id")
+        .eq("code", extractedCode)
         .single();
       
-      if (contractCreateError) {
-        console.error(`[process-document] Failed to create contract:`, contractCreateError);
-        throw new Error(`Failed to create contract: ${contractCreateError.message}`);
+      if (existingContract) {
+        console.log(`[process-document] Contract already exists: ${extractedCode}, using existing`);
+        contract = existingContract;
+        
+        // Update job with contract_id
+        await supabase
+          .from("document_processing_jobs")
+          .update({ contract_id: contract.id })
+          .eq("id", job.id);
+      } else {
+        // Contract doesn't exist, create it
+        console.log(`[process-document] Creating new contract: ${extractedCode}`);
+        
+        const { data: newContract, error: contractCreateError } = await supabase
+          .from("contracts")
+          .insert({
+            code: extractedCode,
+            title: extractedTitle,
+            type: "service",
+            status: "draft",
+            metadata: structured
+          })
+          .select()
+          .single();
+        
+        if (contractCreateError) {
+          console.error(`[process-document] Failed to create contract:`, contractCreateError);
+          throw new Error(`Failed to create contract: ${contractCreateError.message}`);
+        }
+        
+        contract = newContract;
+        
+        // Update job with contract_id
+        await supabase
+          .from("document_processing_jobs")
+          .update({ contract_id: contract.id })
+          .eq("id", job.id);
+        
+        console.log(`[process-document] Contract created: ${contract.id}`);
       }
-      
-      contract = newContract;
-      
-      // Update job with contract_id
-      await supabase
-        .from("document_processing_jobs")
-        .update({ contract_id: contract.id })
-        .eq("id", job.id);
-      
-      console.log(`[process-document] Contract created: ${contract.id}`);
     }
 
     // Save structured extraction
