@@ -1,7 +1,11 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useState } from "react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { ContractFormDialog } from "@/components/ContractFormDialog";
+import { useContracts } from "@/hooks/useContract";
 
 interface ContractDashboardProps {
   onSelectContract: (id: string) => void;
@@ -9,6 +13,8 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
+  const [showContractForm, setShowContractForm] = useState(false);
+  const { data: contractsData } = useContracts();
   // Mock data - will be replaced with Supabase queries
   const contracts = [
     {
@@ -76,11 +82,17 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
-        <p className="text-muted-foreground">
-          Gestión inteligente de contratos mineros con IA
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
+          <p className="text-muted-foreground">
+            Gestión inteligente de contratos mineros con IA
+          </p>
+        </div>
+        <Button onClick={() => setShowContractForm(true)} className="gap-2">
+          <Plus className="w-4 h-4" />
+          Nuevo Contrato
+        </Button>
       </div>
 
       {/* Stats Grid */}
@@ -178,6 +190,11 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
           </Card>
         ))}
       </div>
+
+      <ContractFormDialog 
+        open={showContractForm} 
+        onOpenChange={setShowContractForm}
+      />
     </div>
   );
 };

@@ -110,3 +110,33 @@ export const useTeamMembers = (contractId: string | null) => {
     enabled: !!contractId,
   });
 };
+
+export const useCompanies = () => {
+  return useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("companies")
+        .select("*")
+        .order("name");
+
+      if (error) throw error;
+      return data;
+    },
+  });
+};
+
+export const useAssets = () => {
+  return useQuery({
+    queryKey: ["assets"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assets")
+        .select("*")
+        .order("name");
+
+      if (error) throw error;
+      return data;
+    },
+  });
+};

@@ -1,9 +1,12 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
+import { useContractDocuments } from "@/hooks/useDocuments";
 import {
   AreaChart,
   Area,
@@ -20,6 +23,8 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const { data: documents } = useContractDocuments(contractId);
   // Mock data for S-curve
   const progressData = [
     { month: "Jul", planned: 5, actual: 5 },
@@ -207,11 +212,36 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
 
         <TabsContent value="documents">
           <Card className="border-transparent shadow-md">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Documentos del Contrato</CardTitle>
+              <Button onClick={() => setShowUploadDialog(true)} size="sm" className="gap-2">
+                <Upload className="w-4 h-4" />
+                Cargar Documento
+              </Button>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">Documentos cargados y gestionados con IA...</p>
+              {documents && documents.length > 0 ? (
+                <div className="space-y-2">
+                  {documents.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between p-3 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <FileText className="w-5 h-5 text-primary" />
+                        <div>
+                          <p className="font-medium">{doc.filename}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(doc.created_at).toLocaleDateString('es-CL')}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary">{doc.doc_type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-center py-8">
+                  No hay documentos cargados. Haz clic en "Cargar Documento" para agregar uno.
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -251,6 +281,12 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <DocumentUploadDialog 
+        open={showUploadDialog} 
+        onOpenChange={setShowUploadDialog}
+        preSelectedContractId={contractId}
+      />
     </div>
   );
 };
