@@ -6,20 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper function to convert ArrayBuffer to base64 without stack overflow
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 8192; // Process 8KB at a time
-  let binary = '';
-  
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    binary += String.fromCharCode(...Array.from(chunk));
-  }
-  
-  return btoa(binary);
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -85,9 +71,14 @@ serve(async (req) => {
           continue;
         }
 
-        // Convert to base64 safely (avoid stack overflow with large files)
+        // Parse PDF using Lovable's document parsing API
         const arrayBuffer = await pdfData.arrayBuffer();
-        const base64 = arrayBufferToBase64(arrayBuffer);
+        const parsedDoc = await parsePDF(arrayBuffer, file.name, LOVABLE_API_KEY);
+        
+        if (!parsedDoc.success || !parsedDoc.text) {
+          results.log.push({ type: 'error', message: `Failed to parse PDF: ${filePath} - ${parsedDoc.error || 'No text extracted'}` });
+          continue;
+        }
 
         // Determine document type from folder
         const docTypeMap: Record<string, string> = {
@@ -99,9 +90,9 @@ serve(async (req) => {
         };
         const documentType = docTypeMap[folder];
 
-        // Extract with AI
-        const extractionResult = await extractDocument(
-          base64,
+        // Extract structured data from parsed text with AI
+        const extractionResult = await extractFromParsedText(
+          parsedDoc.text,
           documentType,
           file.name,
           filePath,
@@ -182,8 +173,46 @@ serve(async (req) => {
   }
 });
 
-async function extractDocument(
-  base64Pdf: string,
+// Parse PDF using Lovable's document parsing API
+async function parsePDF(
+  arrayBuffer: ArrayBuffer,
+  filename: string,
+  apiKey: string
+): Promise<{ success: boolean; text?: string; error?: string }> {
+  try {
+    const formData = new FormData();
+    formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), filename);
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/documents/parse', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Parse API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    const text = result.pages?.map((p: any) => p.text).join('\n\n') || '';
+    
+    if (!text) {
+      return { success: false, error: 'No text extracted from PDF' };
+    }
+
+    return { success: true, text };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown parsing error';
+    return { success: false, error: errorMessage };
+  }
+}
+
+// Extract structured data from parsed text
+async function extractFromParsedText(
+  parsedText: string,
   documentType: string,
   filename: string,
   filePath: string,
@@ -207,18 +236,7 @@ async function extractDocument(
           },
           {
             role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Extract structured data from this PDF document (${filename}). Return ONLY valid JSON matching the schema for document type: ${documentType}`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`
-                }
-              }
-            ]
+            content: `Extract structured data from this document text (${filename}). Return ONLY valid JSON matching the schema for document type: ${documentType}\n\nDocument text:\n${parsedText.slice(0, 50000)}`
           }
         ],
         temperature: 0.1
@@ -237,7 +255,7 @@ async function extractDocument(
       return { error: 'No content in AI response' };
     }
 
-    // Extract JSON from response (might be wrapped in markdown code blocks)
+    // Extract JSON from response
     let jsonStr = content.trim();
     if (jsonStr.startsWith('```json')) {
       jsonStr = jsonStr.replace(/^```json\n/, '').replace(/\n```$/, '');
@@ -247,17 +265,16 @@ async function extractDocument(
 
     const extractedData = JSON.parse(jsonStr);
     
-    // Add comprehensive provenance
+    // Add provenance
     extractedData.provenance = {
       bucket_path: 'contracts',
       filename: filename,
       storage_path: filePath,
       extracted_at: new Date().toISOString(),
-      extraction_method: 'ai_vision',
+      extraction_method: 'text_parsing',
       model: 'google/gemini-2.5-flash'
     };
 
-    // Check for low confidence fields and log warnings
     if (extractedData.low_confidence_fields && extractedData.low_confidence_fields.length > 0) {
       console.warn(`Low confidence fields detected in ${filename}:`, extractedData.low_confidence_fields);
     }
