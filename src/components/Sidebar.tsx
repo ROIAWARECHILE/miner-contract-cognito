@@ -57,7 +57,10 @@ export const Sidebar = ({ activeView, onViewChange }: SidebarProps) => {
 
       {/* Settings */}
       <div className="p-4 border-t border-border">
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-smooth">
+        <button 
+          onClick={() => window.location.href = '/settings'}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-smooth"
+        >
           <Settings className="w-5 h-5" />
           <span className="font-medium">Configuración</span>
         </button>
