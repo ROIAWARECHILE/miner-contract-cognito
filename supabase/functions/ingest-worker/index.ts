@@ -6,6 +6,78 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to parse PDF with LlamaParse
+async function parsePDFWithLlamaParse(
+  arrayBuffer: ArrayBuffer, 
+  filename: string, 
+  llamaParseApiKey: string
+): Promise<string | null> {
+  try {
+    console.log(`Starting LlamaParse upload for ${filename}`);
+    
+    // Step 1: Upload PDF to LlamaParse
+    const formData = new FormData();
+    formData.append('file', new Blob([arrayBuffer], { type: 'application/pdf' }), filename);
+    
+    const uploadResponse = await fetch('https://api.cloud.llamaindex.ai/api/v1/parsing/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${llamaParseApiKey}`,
+      },
+      body: formData
+    });
+    
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('LlamaParse upload failed:', errorText);
+      return null;
+    }
+    
+    const uploadResult = await uploadResponse.json();
+    const jobId = uploadResult.id;
+    
+    console.log(`LlamaParse job created: ${jobId}`);
+    
+    // Step 2: Poll for result (max 60s = 30 attempts * 2s)
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      const resultResponse = await fetch(
+        `https://api.cloud.llamaindex.ai/api/v1/parsing/job/${jobId}/result/markdown`,
+        {
+          headers: { 'Authorization': `Bearer ${llamaParseApiKey}` }
+        }
+      );
+      
+      if (!resultResponse.ok) {
+        console.error(`LlamaParse result fetch failed (attempt ${i + 1}/30):`, await resultResponse.text());
+        continue;
+      }
+      
+      const result = await resultResponse.json();
+      
+      if (result.status === 'SUCCESS') {
+        console.log(`LlamaParse succeeded in ${(i + 1) * 2}s, markdown length: ${result.markdown?.length || 0}`);
+        return result.markdown;
+      }
+      
+      if (result.status === 'ERROR') {
+        console.error('LlamaParse job failed:', result.error);
+        return null;
+      }
+      
+      // Status is PENDING or IN_PROGRESS, continue polling
+      console.log(`LlamaParse status: ${result.status}, attempt ${i + 1}/30`);
+    }
+    
+    console.error('LlamaParse timeout after 60s');
+    return null;
+  } catch (error) {
+    console.error('LlamaParse error:', error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -94,31 +166,84 @@ serve(async (req) => {
       meta: { document_type: docType, filename }
     });
 
-    // Step 1: Convert PDF to base64 for vision model
-    console.log('Converting PDF to base64 for AI vision model, file size:', arrayBuffer.byteLength);
-    
-    // Convert ArrayBuffer to base64 in chunks to avoid call stack size exceeded
-    const uint8Array = new Uint8Array(arrayBuffer);
-    const chunkSize = 8192; // Process 8KB at a time
-    let binaryString = '';
-    
-    for (let i = 0; i < uint8Array.length; i += chunkSize) {
-      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
-      binaryString += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    
-    const base64Pdf = btoa(binaryString);
-    console.log('PDF converted to base64, length:', base64Pdf.length);
-    
-    await supabase.from('ingest_logs').insert({
-      job_id: job.id,
-      step: 'parse',
-      message: `PDF converted to base64 (${base64Pdf.length} chars) for vision analysis`,
-      meta: { pdf_size_bytes: arrayBuffer.byteLength }
-    });
+    // Try LlamaParse first if API key is available
+    const llamaParseApiKey = Deno.env.get('LLAMAPARSE_API_KEY');
+    let markdown: string | null = null;
+    let parseMethod = 'direct_pdf_vision';
 
-    // Step 2: Extract structured data directly from PDF using Gemini Vision
-    console.log('Extracting structured data from PDF with Gemini Vision');
+    if (llamaParseApiKey) {
+      await supabase.from('ingest_logs').insert({
+        job_id: job.id,
+        step: 'parse_llamaparse_start',
+        message: 'Attempting LlamaParse extraction',
+        meta: { filename, file_size: arrayBuffer.byteLength }
+      });
+
+      markdown = await parsePDFWithLlamaParse(arrayBuffer, filename, llamaParseApiKey);
+      
+      if (markdown) {
+        parseMethod = 'llamaparse_markdown';
+        await supabase.from('ingest_logs').insert({
+          job_id: job.id,
+          step: 'parse_llamaparse_success',
+          message: `LlamaParse succeeded, markdown length: ${markdown.length}`,
+          meta: { markdown_length: markdown.length }
+        });
+      } else {
+        await supabase.from('ingest_logs').insert({
+          job_id: job.id,
+          step: 'parse_llamaparse_fallback',
+          message: 'LlamaParse failed or timed out, falling back to Gemini Vision',
+          meta: { fallback: true }
+        });
+      }
+    }
+
+    // Prepare content for Gemini based on what we have
+    let userContent: any;
+    
+    if (markdown) {
+      // LlamaParse succeeded: send markdown to Gemini
+      userContent = `Filename: ${filename}\n\nAnalyze this ${docType.toUpperCase()} document that has been pre-parsed into Markdown format by LlamaParse.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).\n\nMARKDOWN CONTENT:\n\n${markdown}\n\nExtract structured data according to the JSON schema defined in the system prompt.`;
+    } else {
+      // Fallback: convert PDF to base64 for Gemini Vision
+      console.log('Converting PDF to base64 for AI vision model, file size:', arrayBuffer.byteLength);
+      
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const chunkSize = 8192;
+      let binaryString = '';
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      
+      const base64Pdf = btoa(binaryString);
+      console.log('PDF converted to base64, length:', base64Pdf.length);
+      
+      await supabase.from('ingest_logs').insert({
+        job_id: job.id,
+        step: 'parse_pdf_direct',
+        message: `PDF converted to base64 (${base64Pdf.length} chars) for vision analysis`,
+        meta: { pdf_size_bytes: arrayBuffer.byteLength }
+      });
+
+      userContent = [
+        {
+          type: 'text',
+          text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
+        },
+        {
+          type: 'image_url',
+          image_url: {
+            url: `data:application/pdf;base64,${base64Pdf}`
+          }
+        }
+      ];
+    }
+
+    // Extract structured data with Gemini
+    console.log(`Extracting structured data with Gemini (source: ${parseMethod})`);
     const systemPrompt = buildSystemPrompt(docType);
     
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -128,30 +253,13 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash', // Fast multimodal model for PDF analysis
+        model: 'google/gemini-2.5-flash',
         messages: [
-          { 
-            role: 'system', 
-            content: systemPrompt 
-          },
-          { 
-            role: 'user', 
-            content: [
-              {
-                type: 'text',
-                text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`
-                }
-              }
-            ]
-          }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent }
         ],
         response_format: { type: 'json_object' },
-        max_tokens: 8000 // Increased for complex tables and multiple tasks
+        max_tokens: 8000
       }),
     });
 
@@ -159,7 +267,7 @@ serve(async (req) => {
       const errorText = await aiResponse.text();
       console.error('AI extraction failed:', errorText);
       
-      // Retry with gemini-2.5-pro if flash-thinking fails
+      // Retry with gemini-2.5-pro if flash fails
       if (job.attempts < 2) {
         console.log('Retrying with gemini-2.5-pro...');
         const retryResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
@@ -172,21 +280,7 @@ serve(async (req) => {
             model: 'google/gemini-2.5-pro',
             messages: [
               { role: 'system', content: systemPrompt },
-              { 
-                role: 'user', 
-                content: [
-                  {
-                    type: 'text',
-                    text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data. This is a ${docType.toUpperCase()} document.`
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: `data:application/pdf;base64,${base64Pdf}`
-                    }
-                  }
-                ]
-              }
+              { role: 'user', content: userContent }
             ],
             response_format: { type: 'json_object' },
             max_tokens: 8000
@@ -204,7 +298,11 @@ serve(async (req) => {
           job_id: job.id,
           step: 'extract',
           message: 'AI extraction completed with gemini-2.5-pro (retry)',
-          meta: { document_type: extracted.document_type, model_used: 'gemini-2.5-pro' }
+          meta: { 
+            document_type: extracted.document_type, 
+            model_used: 'gemini-2.5-pro',
+            source: parseMethod
+          }
         });
         
         // Continue processing with retry result
@@ -221,12 +319,16 @@ serve(async (req) => {
     const aiResult = await aiResponse.json();
     const extracted = JSON.parse(aiResult.choices[0].message.content);
 
-        await supabase.from('ingest_logs').insert({
-          job_id: job.id,
-          step: 'extract',
-          message: 'AI extraction completed',
-          meta: { document_type: extracted.document_type, model_used: 'gemini-2.5-flash' }
-        });
+    await supabase.from('ingest_logs').insert({
+      job_id: job.id,
+      step: 'extract',
+      message: 'AI extraction completed',
+      meta: { 
+        document_type: extracted.document_type, 
+        model_used: 'gemini-2.5-flash',
+        source: parseMethod
+      }
+    });
 
     await processExtractedData(supabase, job, extracted, arrayBuffer, filename, docType);
 
@@ -364,7 +466,14 @@ async function processExtractedData(
 }
 
 function buildSystemPrompt(docType: string): string {
-  const basePrompt = `You are ContractOS AI parser. Extract structured data from mining contract PDFs.
+  const basePrompt = `You are ContractOS AI parser. Extract structured data from mining contract documents.
+
+You may receive the document in TWO FORMATS:
+1. **Markdown format** (pre-parsed by LlamaParse) - Structured text with tables in markdown syntax
+2. **PDF visual format** (direct PDF) - Visual image of the document
+
+REGARDLESS OF INPUT FORMAT, you must extract the same structured data.
+
 Return ONLY valid JSON with this structure:
 {
   "document_type": "${docType}",
