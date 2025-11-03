@@ -151,9 +151,9 @@ function JobRow({
               </Badge>
             )}
             
-            {logs?.some(log => log.step === 'ai_call_claude') && (
+            {logs?.some(log => log.step === 'ai_call_openai') && (
               <Badge variant="outline" className="bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-400">
-                Claude 3.5
+                OpenAI GPT-4o
               </Badge>
             )}
             

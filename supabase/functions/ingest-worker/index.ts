@@ -1,3 +1,4 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
@@ -86,6 +87,7 @@ serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+  const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
   
   const supabase = createClient(supabaseUrl, supabaseKey);
   let job: any = null;
@@ -222,8 +224,12 @@ serve(async (req) => {
         meta: { model: aiModel, markdown_length: markdown.length }
       });
     } else {
-      // Fallback: send PDF to Claude 3.5 Sonnet (better for documents than Gemini Vision)
-      console.log('Converting PDF to base64 for Claude direct PDF processing, file size:', arrayBuffer.byteLength);
+      // Fallback: use OpenAI GPT-4o for direct PDF processing
+      if (!openaiApiKey) {
+        throw new Error('OPENAI_API_KEY not configured for fallback processing');
+      }
+      
+      console.log('Converting PDF to base64 for GPT-4o direct PDF processing, file size:', arrayBuffer.byteLength);
       
       const uint8Array = new Uint8Array(arrayBuffer);
       const chunkSize = 8192;
@@ -235,30 +241,29 @@ serve(async (req) => {
       }
       
       const base64Pdf = btoa(binaryString);
-      console.log('PDF converted to base64 for Claude, length:', base64Pdf.length);
+      console.log('PDF converted to base64 for GPT-4o, length:', base64Pdf.length);
       
       await supabase.from('ingest_logs').insert({
         job_id: job.id,
-        step: 'ai_call_claude',
-        message: 'LlamaParse unavailable, using Claude 3.5 Sonnet for direct PDF processing',
+        step: 'ai_call_openai',
+        message: 'LlamaParse unavailable, using OpenAI GPT-4o for direct PDF processing',
         meta: { pdf_size_bytes: arrayBuffer.byteLength, base64_length: base64Pdf.length }
       });
 
-      aiModel = 'anthropic/claude-3.5-sonnet';
+      aiModel = 'gpt-4o';
       messages = [
+        { role: 'system', content: systemPrompt },
         { 
           role: 'user', 
           content: [
             { 
               type: 'text', 
-              text: systemPrompt + `\n\nFilename: ${filename}\n\nAnalyze this PDF document (${docType.toUpperCase()}) and extract structured data according to the schema.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
+              text: `Filename: ${filename}\n\nAnalyze this PDF document (${docType.toUpperCase()}) and extract structured data according to the schema.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
             },
             {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64Pdf
+              type: 'image_url',
+              image_url: {
+                url: `data:application/pdf;base64,${base64Pdf}`
               }
             }
           ]
@@ -269,41 +274,86 @@ serve(async (req) => {
     // Extract structured data with AI
     console.log(`Extracting structured data with ${aiModel} (source: ${parseMethod})`);
     
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${lovableApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: aiModel,
-        messages: messages,
-        response_format: { type: 'json_object' },
-        max_tokens: 8000
-      }),
-    });
+    let aiResponse: Response;
+
+    if (markdown) {
+      // Use Lovable AI Gateway for Gemini (markdown processing)
+      aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${lovableApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: aiModel,
+          messages: messages,
+          response_format: { type: 'json_object' },
+          max_tokens: 8000
+        }),
+      });
+    } else {
+      // Use OpenAI API directly for GPT-4o (PDF processing)
+      aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: messages,
+          response_format: { type: 'json_object' },
+          max_tokens: 4096
+        }),
+      });
+    }
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error('AI extraction failed:', errorText);
       
-      // Retry with alternate model if initial fails
+      // Retry with alternate model/approach
       if (job.attempts < 2) {
-        const retryModel = markdown ? 'google/gemini-2.5-pro' : 'anthropic/claude-sonnet-4-5';
-        console.log(`Retrying with ${retryModel}...`);
-        const retryResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${lovableApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: retryModel,
-            messages: messages,
-            response_format: { type: 'json_object' },
-            max_tokens: 8000
-          }),
-        });
+        let retryModel: string;
+        let retryResponse: Response;
+        
+        if (markdown) {
+          // Retry markdown with Gemini Pro (more powerful)
+          retryModel = 'google/gemini-2.5-pro';
+          console.log(`Retrying with ${retryModel}...`);
+          
+          retryResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${lovableApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: retryModel,
+              messages: messages,
+              response_format: { type: 'json_object' },
+              max_tokens: 8000
+            }),
+          });
+        } else {
+          // Retry PDF with OpenAI GPT-4o (increase tokens)
+          retryModel = 'gpt-4o (retry)';
+          console.log('Retrying with same model but increased tokens...');
+          
+          retryResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${openaiApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              messages: messages,
+              response_format: { type: 'json_object' },
+              max_tokens: 8000  // Increased from 4096
+            }),
+          });
+        }
         
         if (!retryResponse.ok) {
           throw new Error(`AI extraction failed even with retry: ${retryResponse.status}`);
@@ -319,7 +369,8 @@ serve(async (req) => {
           meta: { 
             document_type: extracted.document_type, 
             model_used: retryModel,
-            source: parseMethod
+            source: parseMethod,
+            retry: true
           }
         });
         
@@ -344,7 +395,7 @@ serve(async (req) => {
       meta: { 
         document_type: extracted.document_type, 
         model_used: aiModel,
-        source: markdown ? 'llamaparse_markdown' : 'claude_direct_pdf'
+        source: markdown ? 'llamaparse_markdown' : 'openai_gpt4o_pdf'
       }
     });
 
