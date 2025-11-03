@@ -222,7 +222,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                 tasks.map((task) => (
                   <div key={task.id} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{task.task_name}</span>
+                      <span className="font-medium">
+                        <span className="font-mono text-primary">{task.task_number}</span> - {task.task_name}
+                      </span>
                       <div className="flex items-center gap-3">
                         <span className="text-muted-foreground">
                           {task.spent_uf.toFixed(2)} / {task.budget_uf} UF
