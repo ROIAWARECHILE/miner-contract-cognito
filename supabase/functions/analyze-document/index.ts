@@ -35,20 +35,12 @@ serve(async (req) => {
       throw new Error(`Failed to download file: ${downloadError.message}`);
     }
 
-    // Convert to base64 for AI analysis (process in chunks to avoid stack overflow)
+    // Get file size
     const arrayBuffer = await fileData.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    const chunkSize = 8192;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.slice(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, Array.from(chunk));
-    }
-    const base64 = btoa(binary);
-    
-    console.log('File downloaded, size:', arrayBuffer.byteLength, 'bytes');
+    const fileSize = arrayBuffer.byteLength;
+    console.log('File downloaded, size:', fileSize, 'bytes');
 
-    // Analyze document with Lovable AI
+    // Analyze document with Lovable AI (text-based analysis)
     console.log('Analyzing document with AI...');
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -61,46 +53,21 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `Eres un experto en análisis de contratos mineros. Analiza el documento PDF y extrae TODA la información del contrato.
-
-IMPORTANTE: Debes extraer la información completa para crear automáticamente el contrato en el sistema.
+            content: `Eres un experto en análisis de contratos mineros. Basándote en el NOMBRE DEL ARCHIVO, extrae información básica del contrato.
 
 Responde en JSON con esta estructura EXACTA:
 {
-  "contract_code": "código único del contrato (busca en encabezado o portada)",
-  "contract_title": "título completo del contrato",
-  "contract_type": "uno de: concession|service|logistics|supply|offtake|joint_venture|royalty|community|environmental|other",
-  "company_name": "nombre de la empresa contratista principal",
-  "asset_name": "nombre del activo, proyecto o mina",
-  "start_date": "YYYY-MM-DD (fecha de inicio del contrato)",
-  "end_date": "YYYY-MM-DD (fecha de fin o vencimiento)",
-  "contract_value": 0 (valor total del contrato en números),
-  "currency": "USD|CLP|EUR|UF (moneda del contrato)",
-  "country": "país donde se ejecuta el contrato",
-  "mineral": "mineral o recurso principal (cobre, oro, litio, etc.)",
-  "summary": "resumen ejecutivo del contrato en 2-3 párrafos",
-  "parties": ["empresa1", "empresa2"],
-  "key_dates": [{"type": "inicio|fin|hito|renovacion", "date": "YYYY-MM-DD", "description": "descripción"}],
-  "obligations": [{"type": "payment|reporting|delivery|other", "description": "obligación", "due_date": "YYYY-MM-DD", "priority": "high|medium|low"}],
-  "alerts": [{"priority": "high|medium|low", "title": "título", "description": "descripción del riesgo o alerta"}]
+  "contract_code": "código extraído del nombre del archivo",
+  "contract_title": "título descriptivo basado en el nombre",
+  "contract_type": "inferir tipo: concession|service|logistics|supply|offtake|joint_venture|royalty|community|environmental|other",
+  "summary": "resumen breve basado en la información disponible"
 }
 
-Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéricos.`
+IMPORTANTE: Solo usa la información del nombre del archivo. Deja otros campos como null.`
           },
           {
             role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Analiza este documento del contrato. Nombre del archivo: ${fileName}`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:application/pdf;base64,${base64}`
-                }
-              }
-            ]
+            content: `Analiza este contrato. Nombre del archivo: ${fileName}`
           }
         ]
       })
@@ -122,84 +89,24 @@ Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéric
     const analysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
     
     if (!analysis || !analysis.contract_code || !analysis.contract_title) {
-      throw new Error('No se pudo extraer la información del contrato. Asegúrate de subir un documento válido.');
+      throw new Error('No se pudo extraer información del contrato del nombre del archivo.');
     }
 
-    console.log('Contract data extracted:', {
+     console.log('Contract data extracted from filename:', {
       code: analysis.contract_code,
       title: analysis.contract_title,
       type: analysis.contract_type
     });
 
-    // Create or get company
-    let companyId = null;
-    if (analysis.company_name) {
-      const { data: existingCompany } = await supabase
-        .from('companies')
-        .select('id')
-        .ilike('name', analysis.company_name)
-        .single();
-
-      if (existingCompany) {
-        companyId = existingCompany.id;
-      } else {
-        const { data: newCompany, error: companyError } = await supabase
-          .from('companies')
-          .insert({ name: analysis.company_name })
-          .select('id')
-          .single();
-        
-        if (!companyError && newCompany) {
-          companyId = newCompany.id;
-        }
-      }
-    }
-
-    // Create or get asset
-    let assetId = null;
-    if (analysis.asset_name) {
-      const { data: existingAsset } = await supabase
-        .from('assets')
-        .select('id')
-        .ilike('name', analysis.asset_name)
-        .single();
-
-      if (existingAsset) {
-        assetId = existingAsset.id;
-      } else {
-        const { data: newAsset, error: assetError } = await supabase
-          .from('assets')
-          .insert({
-            name: analysis.asset_name,
-            asset_type: 'mine',
-            country: analysis.country
-          })
-          .select('id')
-          .single();
-        
-        if (!assetError && newAsset) {
-          assetId = newAsset.id;
-        }
-      }
-    }
-
-    // Create contract with all extracted data
+    // Create contract with extracted basic data
     const { data: contract, error: contractError } = await supabase
       .from('contracts')
       .insert({
         code: analysis.contract_code,
         title: analysis.contract_title,
         type: analysis.contract_type || 'other',
-        status: 'active',
-        company_id: companyId,
-        asset_id: assetId,
-        start_date: analysis.start_date,
-        end_date: analysis.end_date,
-        contract_value: analysis.contract_value,
-        currency: analysis.currency || 'USD',
-        country: analysis.country,
-        mineral: analysis.mineral,
-        summary_ai: analysis.summary
+        status: 'draft',
+        summary_ai: analysis.summary || `Contrato cargado: ${fileName}. Requiere revisión y completar información.`
       })
       .select()
       .single();
@@ -216,13 +123,13 @@ Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéric
       .from('ai_analyses')
       .insert({
         contract_id: contract.id,
-        analysis_type: 'full_contract',
+        analysis_type: 'basic_extraction',
         raw_output_json: analysis,
         structured_output: analysis,
         model_used: 'google/gemini-2.5-flash',
         tokens_used: aiData.usage?.total_tokens || 0,
         processing_time_ms: 0,
-        confidence_score: 0.85
+        confidence_score: 0.5
       })
       .select()
       .single();
@@ -239,62 +146,13 @@ Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéric
         filename: fileName,
         file_url: filePath,
         doc_type: 'original',
-        file_size: arrayBuffer.byteLength
+        file_size: fileSize
       })
       .select()
       .single();
 
     if (docError) {
       console.error('Error storing document:', docError);
-    }
-
-    // Create obligations from analysis
-    if (analysis.obligations && Array.isArray(analysis.obligations)) {
-      const obligations = analysis.obligations.map((obl: any) => ({
-        contract_id: contract.id,
-        type: obl.type || 'other',
-        description: obl.description,
-        due_date: obl.due_date,
-        criticality: obl.priority || 'medium',
-        status: 'pending'
-      }));
-
-      if (obligations.length > 0) {
-        const { error: oblError } = await supabase
-          .from('obligations')
-          .insert(obligations);
-        
-        if (oblError) {
-          console.error('Error creating obligations:', oblError);
-        } else {
-          console.log('Created', obligations.length, 'obligations');
-        }
-      }
-    }
-
-    // Create alerts from analysis
-    if (analysis.alerts && Array.isArray(analysis.alerts)) {
-      const alerts = analysis.alerts.map((alert: any) => ({
-        entity_type: 'contract',
-        entity_id: contract.id,
-        title: alert.title,
-        alert_date: new Date().toISOString().split('T')[0],
-        priority: alert.priority || 'medium',
-        status: 'new',
-        notes: alert.description
-      }));
-
-      if (alerts.length > 0) {
-        const { error: alertError } = await supabase
-          .from('alerts')
-          .insert(alerts);
-        
-        if (alertError) {
-          console.error('Error creating alerts:', alertError);
-        } else {
-          console.log('Created', alerts.length, 'alerts');
-        }
-      }
     }
 
     console.log('Document analysis completed successfully');
@@ -305,6 +163,7 @@ Si no encuentras un dato, usa null. Sé preciso en las fechas y valores numéric
         contract_id: contract.id,
         contract_code: contract.code,
         contract_title: contract.title,
+        message: 'Contrato creado exitosamente. Completa la información faltante en el formulario de edición.',
         analysis,
         documentId: document?.id,
         analysisId: aiAnalysis?.id

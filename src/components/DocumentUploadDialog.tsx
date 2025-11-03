@@ -102,8 +102,8 @@ export const DocumentUploadDialog = ({
       await refetchContracts();
 
       toast({
-        title: "✅ Contrato creado exitosamente",
-        description: `Código: ${data.contract_code} - ${data.contract_title}`,
+        title: "✅ Contrato creado",
+        description: data.message || `${data.contract_code} - ${data.contract_title}. Edita el contrato para completar la información.`,
       });
 
       setSelectedFile(null);
@@ -128,7 +128,7 @@ export const DocumentUploadDialog = ({
         <DialogHeader>
           <DialogTitle>Cargar Contrato</DialogTitle>
           <DialogDescription>
-            Sube el PDF del contrato y la IA extraerá automáticamente toda la información
+            Sube el PDF del contrato para crear un borrador. Luego completa la información detallada manualmente.
           </DialogDescription>
         </DialogHeader>
 
@@ -176,17 +176,17 @@ export const DocumentUploadDialog = ({
             </div>
 
             {selectedFile && !uploading && !analyzing && (
-              <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  🤖 La IA analizará el documento y extraerá automáticamente:
+              <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100 mb-2">
+                  ℹ️ Extracción básica de información
                 </p>
-                <ul className="text-xs text-muted-foreground mt-2 space-y-1 list-disc list-inside">
-                  <li>Código y título del contrato</li>
-                  <li>Tipo, empresa, activo y ubicación</li>
-                  <li>Fechas de inicio y fin</li>
-                  <li>Valor del contrato y moneda</li>
-                  <li>Obligaciones y alertas</li>
-                </ul>
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  El sistema creará un contrato en borrador basado en el nombre del archivo. 
+                  Deberás completar manualmente la información detallada (fechas, valores, empresa, etc.) después de la carga.
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                  <strong>Nota:</strong> La extracción completa automática de PDFs requiere OCR avanzado y será implementada en una futura versión.
+                </p>
               </div>
             )}
           </div>
@@ -197,7 +197,7 @@ export const DocumentUploadDialog = ({
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
               <span>
                 {uploading && "Subiendo documento..."}
-                {analyzing && "Analizando contrato con IA... Esto puede tardar hasta 30 segundos."}
+                {analyzing && "Extrayendo información del archivo..."}
               </span>
             </div>
           )}
@@ -223,7 +223,7 @@ export const DocumentUploadDialog = ({
               ) : (
                 <>
                   <Upload className="w-4 h-4 mr-2" />
-                  Analizar y Crear Contrato
+                  Crear Contrato Borrador
                 </>
               )}
             </Button>
