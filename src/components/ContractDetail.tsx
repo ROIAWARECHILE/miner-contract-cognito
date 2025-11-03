@@ -1,9 +1,11 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useContract, useContractTasks, useSLAAlerts } from "@/hooks/useContract";
 import {
   AreaChart,
   Area,
@@ -13,6 +15,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 interface ContractDetailProps {
   contractId: string;
@@ -20,30 +24,48 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  // Mock data for S-curve
-  const progressData = [
-    { month: "Jul", planned: 5, actual: 5 },
-    { month: "Ago", planned: 15, actual: 0 },
-    { month: "Sep", planned: 30, actual: 0 },
-    { month: "Oct", planned: 50, actual: 0 },
-    { month: "Nov", planned: 70, actual: 0 },
-    { month: "Dic", planned: 90, actual: 0 },
-    { month: "Ene", planned: 100, actual: 0 },
-  ];
+  const { data: contract, isLoading, error } = useContract(contractId);
+  const { data: tasks } = useContractTasks(contractId);
+  const { data: alerts } = useSLAAlerts(contractId);
 
-  const tasks = [
-    { name: "Recopilación y análisis de información", budget: 507, spent: 147.85, progress: 29 },
-    { name: "Visita a terreno", budget: 216, spent: 0, progress: 0 },
-    { name: "Actualización del estudio hidrológico", budget: 863, spent: 50.31, progress: 6 },
-    { name: "Revisión experta del Modelo Hidrogeológico", budget: 256, spent: 0, progress: 0 },
-    { name: "Actualización y calibración del MN", budget: 843, spent: 0, progress: 0 },
-    { name: "Análisis de condiciones desfavorables", budget: 213, spent: 0, progress: 0 },
-    { name: "Simulaciones predictivas", budget: 423, spent: 0, progress: 0 },
-    { name: "Asesoría Técnica y Análisis", budget: 580, spent: 0, progress: 0 },
-    { name: "Reuniones y presentaciones", budget: 386, spent: 11.66, progress: 3 },
-    { name: "Costos Administración (5%)", budget: 214, spent: 0, progress: 0 },
-  ];
+  // Calculate progress and budget from tasks
+  const totalBudget = Number(contract?.contract_value) || 0;
+  const totalProgress = contract?.risk_score || 0;
+  const totalSpent = totalBudget * (totalProgress / 100);
 
+  // Generate S-curve data from contract dates
+  const generateProgressData = () => {
+    if (!contract?.start_date || !contract?.end_date) {
+      return [{ month: "Hoy", planned: totalProgress, actual: totalProgress }];
+    }
+    
+    const start = new Date(contract.start_date);
+    const end = new Date(contract.end_date);
+    const now = new Date();
+    
+    const months = [];
+    let current = new Date(start);
+    
+    while (current <= end) {
+      const monthName = format(current, "MMM", { locale: es });
+      const monthProgress = Math.min(100, ((current.getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100);
+      const actualProgress = current <= now ? Math.min(monthProgress, totalProgress) : 0;
+      
+      months.push({
+        month: monthName,
+        planned: Math.round(monthProgress),
+        actual: Math.round(actualProgress),
+      });
+      
+      current.setMonth(current.getMonth() + 1);
+    }
+    
+    return months.length > 0 ? months : [{ month: "Hoy", planned: totalProgress, actual: totalProgress }];
+  };
+
+  const progressData = generateProgressData();
+
+  // Team mock data (since team_members table has no data yet)
   const team = [
     { name: "José Luis Delgado", role: "Líder de Proyecto", specialty: "Hidrogeólogo Principal" },
     { name: "Martin Brown", role: "Hidrogeólogo Principal", specialty: "Ing. Civil Hidráulico" },
@@ -51,6 +73,46 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Macarena Casanova", role: "Consultor Senior", specialty: "Ing. Civil Minas" },
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-in slide-in-from-right duration-500">
+        <Button variant="ghost" onClick={onBack} className="gap-2 mb-2">
+          <ArrowLeft className="w-4 h-4" />
+          Volver al Dashboard
+        </Button>
+        <Skeleton className="h-64 rounded-2xl" />
+        <div className="grid grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !contract) {
+    return (
+      <div className="space-y-6 animate-in slide-in-from-right duration-500">
+        <Button variant="ghost" onClick={onBack} className="gap-2 mb-2">
+          <ArrowLeft className="w-4 h-4" />
+          Volver al Dashboard
+        </Button>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center space-y-3">
+            <AlertCircle className="w-16 h-16 mx-auto text-destructive" />
+            <h3 className="text-xl font-semibold">No se pudo cargar el contrato</h3>
+            <p className="text-muted-foreground">
+              El contrato solicitado no existe o hubo un error al cargarlo
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const completedTasks = tasks?.filter(t => t.status === 'completed').length || 0;
+  const totalTasks = tasks?.length || 0;
 
   return (
     <div className="space-y-6 animate-in slide-in-from-right duration-500">
@@ -69,21 +131,31 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="flex items-start justify-between mb-6">
           <div>
             <Badge variant="secondary" className="font-mono mb-3">
-              AIPD-CSI001-1000-MN-0001
+              {contract.code}
             </Badge>
             <h1 className="text-3xl font-bold mb-2">
-              Estudio Hidrológico e Hidrogeológico Proyecto Dominga
+              {contract.title}
             </h1>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>Andes Iron SpA</span>
-              <span>•</span>
-              <span>Itasca Chile SpA</span>
-              <span>•</span>
-              <span>Inicio: 21 Jul 2025</span>
+              {contract.start_date && (
+                <>
+                  <span>Inicio: {format(new Date(contract.start_date), "dd MMM yyyy", { locale: es })}</span>
+                  <span>•</span>
+                </>
+              )}
+              {contract.end_date && (
+                <span>Fin: {format(new Date(contract.end_date), "dd MMM yyyy", { locale: es })}</span>
+              )}
+              {contract.mineral && (
+                <>
+                  <span>•</span>
+                  <span>{contract.mineral}</span>
+                </>
+              )}
             </div>
           </div>
           <div className="text-right">
-            <div className="text-5xl font-bold text-gradient mb-1">5%</div>
+            <div className="text-5xl font-bold text-gradient mb-1">{totalProgress}%</div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
           </div>
         </div>
@@ -91,19 +163,19 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="grid grid-cols-4 gap-6">
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Presupuesto Total</p>
-            <p className="text-2xl font-bold">4,501 UF</p>
+            <p className="text-2xl font-bold">{totalBudget.toLocaleString('es-CL')} {contract.currency || 'UF'}</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Gastado</p>
-            <p className="text-2xl font-bold text-primary">209.81 UF</p>
+            <p className="text-2xl font-bold text-primary">{totalSpent.toLocaleString('es-CL', { maximumFractionDigits: 2 })} {contract.currency || 'UF'}</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Disponible</p>
-            <p className="text-2xl font-bold text-success">4,291.19 UF</p>
+            <p className="text-2xl font-bold text-success">{(totalBudget - totalSpent).toLocaleString('es-CL', { maximumFractionDigits: 2 })} {contract.currency || 'UF'}</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <p className="text-sm text-muted-foreground mb-1">EDPs Pagados</p>
-            <p className="text-2xl font-bold">1 de 10</p>
+            <p className="text-sm text-muted-foreground mb-1">Tareas Completadas</p>
+            <p className="text-2xl font-bold">{completedTasks} de {totalTasks}</p>
           </div>
         </div>
       </div>
@@ -185,22 +257,38 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Avance por Tarea</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {tasks.map((task, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">{task.name}</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-muted-foreground">
-                        {task.spent.toFixed(2)} / {task.budget} UF
-                      </span>
-                      <Badge variant={task.progress > 0 ? "default" : "secondary"}>
-                        {task.progress}%
-                      </Badge>
+              {!tasks || tasks.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No hay tareas registradas para este contrato
+                </p>
+              ) : (
+                tasks.map((task) => {
+                  const taskProgress = task.status === 'completed' ? 100 : 
+                                     task.status === 'in_progress' ? 50 : 0;
+                  
+                  return (
+                    <div key={task.id} className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">{task.description}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-muted-foreground capitalize">
+                            {task.type}
+                          </span>
+                          <Badge variant={taskProgress > 0 ? "default" : "secondary"}>
+                            {task.status}
+                          </Badge>
+                        </div>
+                      </div>
+                      <Progress value={taskProgress} className="h-2" />
+                      {task.due_date && (
+                        <p className="text-xs text-muted-foreground">
+                          Vence: {format(new Date(task.due_date), "dd MMM yyyy", { locale: es })}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                  <Progress value={task.progress} className="h-2" />
-                </div>
-              ))}
+                  );
+                })
+              )}
             </CardContent>
           </Card>
         </TabsContent>
