@@ -1,11 +1,20 @@
+import { useState } from "react";
 import { Search, Upload, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 
 export const Header = () => {
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+
   return (
+    <>
+      <DocumentUploadDialog 
+        open={uploadDialogOpen} 
+        onOpenChange={setUploadDialogOpen}
+      />
     <header className="bg-card border-b border-border px-6 py-4 flex items-center justify-between shadow-sm">
       {/* Search */}
       <div className="flex-1 max-w-xl">
@@ -20,7 +29,12 @@ export const Header = () => {
 
       {/* Actions */}
       <div className="flex items-center gap-3">
-        <Button variant="default" size="sm" className="gap-2 shadow-md hover:shadow-lg transition-spring">
+        <Button 
+          variant="default" 
+          size="sm" 
+          className="gap-2 shadow-md hover:shadow-lg transition-spring"
+          onClick={() => setUploadDialogOpen(true)}
+        >
           <Upload className="w-4 h-4" />
           <span className="font-medium">Cargar Documento</span>
         </Button>
@@ -44,5 +58,6 @@ export const Header = () => {
         </Avatar>
       </div>
     </header>
+    </>
   );
 };

@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, AlertCircle } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, AlertCircle, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useContract, useContractTasks, useSLAAlerts } from "@/hooks/useContract";
+import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
+import { useState } from "react";
 import {
   AreaChart,
   Area,
@@ -24,6 +26,7 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const { data: contract, isLoading, error } = useContract(contractId);
   const { data: tasks } = useContractTasks(contractId);
   const { data: alerts } = useSLAAlerts(contractId);
@@ -115,16 +118,34 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const totalTasks = tasks?.length || 0;
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-right duration-500">
-      {/* Back Button */}
-      <Button
-        variant="ghost"
-        onClick={onBack}
-        className="gap-2 mb-2 hover:-translate-x-1 transition-spring"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Volver al Dashboard
-      </Button>
+    <>
+      <DocumentUploadDialog 
+        open={uploadDialogOpen} 
+        onOpenChange={setUploadDialogOpen}
+        contractId={contractId}
+      />
+      <div className="space-y-6 animate-in slide-in-from-right duration-500">
+        {/* Back Button */}
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            onClick={onBack}
+            className="gap-2 mb-2 hover:-translate-x-1 transition-spring"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al Dashboard
+          </Button>
+          
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setUploadDialogOpen(true)}
+            className="gap-2"
+          >
+            <Upload className="w-4 h-4" />
+            Cargar Documento
+          </Button>
+        </div>
 
       {/* Contract Header */}
       <div className="bg-gradient-to-br from-primary/10 via-primary/5 to-accent/10 rounded-2xl p-8 border border-primary/20 shadow-lg">
@@ -299,7 +320,33 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Documentos del Contrato</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">Documentos cargados y gestionados con IA...</p>
+              {!tasks || tasks.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No hay documentos cargados para este contrato
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {tasks.slice(0, 5).map((task) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{task.description}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {task.created_at && format(new Date(task.created_at), "dd MMM yyyy - HH:mm", { locale: es })}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="outline">{task.type}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -340,5 +387,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         </TabsContent>
       </Tabs>
     </div>
+    </>
   );
 };
