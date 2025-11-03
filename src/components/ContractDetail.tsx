@@ -13,8 +13,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useContract, useContractProgress, useContractDocuments, useCompany } from "@/hooks/useContract";
-import { format } from "date-fns";
 
 interface ContractDetailProps {
   contractId: string;
@@ -22,137 +20,28 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  const { data: contractData, isLoading: contractLoading } = useContract(contractId);
-  const { data: progressData, isLoading: progressLoading } = useContractProgress(contractId);
-  const { data: documentsData, isLoading: documentsLoading } = useContractDocuments(contractId);
-  const { data: companyData, isLoading: companyLoading } = useCompany(contractData?.company_id || null);
-
-  // Mock data cuando no hay datos reales
-  const contract = contractData || {
-    id: contractId,
-    code: "4500066822-16-LQ24",
-    title: "Estudio Hidrogeológico Conceptual Distrito Minero - Fase 2",
-    type: "service" as const,
-    status: "active" as const,
-    company_id: "mock-company-id",
-    start_date: "2024-07-01",
-    end_date: "2025-01-31",
-    contract_value: 18500,
-    currency: "UF",
-    summary_ai: "Estudio hidrogeológico conceptual para distrito minero en fase exploratoria",
-    created_at: "2024-07-01T00:00:00Z",
-    updated_at: "2024-07-01T00:00:00Z",
-    created_by: null,
-    document_url: null,
-    risk_score: null,
-    risk_label: null,
-    asset_id: null,
-    country: "Chile",
-    mineral: "Cobre"
-  };
-
-  const progress = progressData || {
-    totalBudget: 18500,
-    totalSpent: 925.5,
-    avgProgress: 5,
-    tasks: [
-      {
-        id: "1",
-        contract_id: contractId,
-        task_number: "1",
-        task_name: "Revisión Información Existente",
-        budget_uf: 3500,
-        spent_uf: 175,
-        progress_percentage: 5,
-        created_at: "2024-07-01T00:00:00Z",
-        updated_at: "2024-07-01T00:00:00Z"
-      },
-      {
-        id: "2",
-        contract_id: contractId,
-        task_number: "2",
-        task_name: "Caracterización Hidrogeológica",
-        budget_uf: 6500,
-        spent_uf: 325,
-        progress_percentage: 5,
-        created_at: "2024-07-01T00:00:00Z",
-        updated_at: "2024-07-01T00:00:00Z"
-      },
-      {
-        id: "3",
-        contract_id: contractId,
-        task_number: "3",
-        task_name: "Modelo Conceptual",
-        budget_uf: 5000,
-        spent_uf: 250,
-        progress_percentage: 5,
-        created_at: "2024-07-01T00:00:00Z",
-        updated_at: "2024-07-01T00:00:00Z"
-      },
-      {
-        id: "4",
-        contract_id: contractId,
-        task_number: "4",
-        task_name: "Informe Final y Presentación",
-        budget_uf: 3500,
-        spent_uf: 175.5,
-        progress_percentage: 5,
-        created_at: "2024-07-01T00:00:00Z",
-        updated_at: "2024-07-01T00:00:00Z"
-      }
-    ]
-  };
-
-  const documents = documentsData || [
-    {
-      id: "1",
-      contract_id: contractId,
-      filename: "Contrato Principal 4500066822-16-LQ24.pdf",
-      file_url: "#",
-      doc_type: "original" as const,
-      created_at: "2024-07-01T00:00:00Z",
-      uploaded_by: null,
-      file_size: 2500000,
-      version: 1,
-      checksum: null
-    },
-    {
-      id: "2",
-      contract_id: contractId,
-      filename: "EDP 001 - Julio 2024.pdf",
-      file_url: "#",
-      doc_type: "edp" as const,
-      created_at: "2024-08-01T00:00:00Z",
-      uploaded_by: null,
-      file_size: 850000,
-      version: 1,
-      checksum: null
-    }
-  ];
-
-  const company = companyData || {
-    id: "mock-company-id",
-    name: "Quantum Minerals Chile SpA",
-    country: "Chile",
-    address: null,
-    contact_email: null,
-    contact_phone: null,
-    website: null,
-    rating: "A",
-    notes: null,
-    created_at: "2024-07-01T00:00:00Z",
-    updated_at: "2024-07-01T00:00:00Z"
-  };
-
-  // Mock data for S-curve - TODO: Generate from real progress data
-  const sCurveData = [
-    { month: "Jul", planned: 5, actual: progress?.avgProgress || 5 },
+  // Mock data for S-curve
+  const progressData = [
+    { month: "Jul", planned: 5, actual: 5 },
     { month: "Ago", planned: 15, actual: 0 },
     { month: "Sep", planned: 30, actual: 0 },
     { month: "Oct", planned: 50, actual: 0 },
     { month: "Nov", planned: 70, actual: 0 },
     { month: "Dic", planned: 90, actual: 0 },
     { month: "Ene", planned: 100, actual: 0 },
+  ];
+
+  const tasks = [
+    { name: "Recopilación y análisis de información", budget: 507, spent: 147.85, progress: 29 },
+    { name: "Visita a terreno", budget: 216, spent: 0, progress: 0 },
+    { name: "Actualización del estudio hidrológico", budget: 863, spent: 50.31, progress: 6 },
+    { name: "Revisión experta del Modelo Hidrogeológico", budget: 256, spent: 0, progress: 0 },
+    { name: "Actualización y calibración del MN", budget: 843, spent: 0, progress: 0 },
+    { name: "Análisis de condiciones desfavorables", budget: 213, spent: 0, progress: 0 },
+    { name: "Simulaciones predictivas", budget: 423, spent: 0, progress: 0 },
+    { name: "Asesoría Técnica y Análisis", budget: 580, spent: 0, progress: 0 },
+    { name: "Reuniones y presentaciones", budget: 386, spent: 11.66, progress: 3 },
+    { name: "Costos Administración (5%)", budget: 214, spent: 0, progress: 0 },
   ];
 
   const team = [
@@ -162,11 +51,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Macarena Casanova", role: "Consultor Senior", specialty: "Ing. Civil Minas" },
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
-
-  // Mostrar loading solo si está cargando datos reales
-  if (contractLoading && !contractData) {
-    return <div className="p-6">Cargando contrato...</div>;
-  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-right duration-500">
@@ -185,25 +69,21 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="flex items-start justify-between mb-6">
           <div>
             <Badge variant="secondary" className="font-mono mb-3">
-              {contract.code}
+              AIPD-CSI001-1000-MN-0001
             </Badge>
             <h1 className="text-3xl font-bold mb-2">
-              {contract.title}
+              Estudio Hidrológico e Hidrogeológico Proyecto Dominga
             </h1>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              {company && <span>{company.name}</span>}
-              {contract.start_date && (
-                <>
-                  <span>•</span>
-                  <span>Inicio: {format(new Date(contract.start_date), 'dd MMM yyyy')}</span>
-                </>
-              )}
+              <span>Andes Iron SpA</span>
+              <span>•</span>
+              <span>Itasca Chile SpA</span>
+              <span>•</span>
+              <span>Inicio: 21 Jul 2025</span>
             </div>
           </div>
           <div className="text-right">
-            <div className="text-5xl font-bold text-gradient mb-1">
-              {progress?.avgProgress || 0}%
-            </div>
+            <div className="text-5xl font-bold text-gradient mb-1">5%</div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
           </div>
         </div>
@@ -211,25 +91,19 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="grid grid-cols-4 gap-6">
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Presupuesto Total</p>
-            <p className="text-2xl font-bold">
-              {progress?.totalBudget?.toLocaleString('es-CL', { maximumFractionDigits: 0 }) || '0'} {contract.currency}
-            </p>
+            <p className="text-2xl font-bold">4,501 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Gastado</p>
-            <p className="text-2xl font-bold text-primary">
-              {progress?.totalSpent?.toLocaleString('es-CL', { maximumFractionDigits: 2 }) || '0'} {contract.currency}
-            </p>
+            <p className="text-2xl font-bold text-primary">209.81 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
             <p className="text-sm text-muted-foreground mb-1">Disponible</p>
-            <p className="text-2xl font-bold text-success">
-              {((progress?.totalBudget || 0) - (progress?.totalSpent || 0)).toLocaleString('es-CL', { maximumFractionDigits: 2 })} {contract.currency}
-            </p>
+            <p className="text-2xl font-bold text-success">4,291.19 UF</p>
           </div>
           <div className="bg-card/50 backdrop-blur-sm rounded-xl p-4 border border-border/50">
-            <p className="text-sm text-muted-foreground mb-1">Documentos</p>
-            <p className="text-2xl font-bold">{documents?.length || 0}</p>
+            <p className="text-sm text-muted-foreground mb-1">EDPs Pagados</p>
+            <p className="text-2xl font-bold">1 de 10</p>
           </div>
         </div>
       </div>
@@ -263,7 +137,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={sCurveData}>
+                <AreaChart data={progressData}>
                   <defs>
                     <linearGradient id="planned" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -311,26 +185,22 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Avance por Tarea</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {progress?.tasks && progress.tasks.length > 0 ? (
-                progress.tasks.map((task, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{task.task_name}</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-muted-foreground">
-                          {task.spent_uf?.toFixed(2) || 0} / {task.budget_uf?.toFixed(0) || 0} {contract.currency}
-                        </span>
-                        <Badge variant={task.progress_percentage > 0 ? "default" : "secondary"}>
-                          {task.progress_percentage || 0}%
-                        </Badge>
-                      </div>
+              {tasks.map((task, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{task.name}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground">
+                        {task.spent.toFixed(2)} / {task.budget} UF
+                      </span>
+                      <Badge variant={task.progress > 0 ? "default" : "secondary"}>
+                        {task.progress}%
+                      </Badge>
                     </div>
-                    <Progress value={task.progress_percentage || 0} className="h-2" />
                   </div>
-                ))
-              ) : (
-                <p className="text-muted-foreground">No hay tareas registradas</p>
-              )}
+                  <Progress value={task.progress} className="h-2" />
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>
@@ -341,30 +211,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <CardTitle>Documentos del Contrato</CardTitle>
             </CardHeader>
             <CardContent>
-              {documents && documents.length > 0 ? (
-                <div className="space-y-3">
-                  {documents.map((doc) => (
-                    <div key={doc.id} className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border border-border/50">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-5 h-5 text-muted-foreground" />
-                        <div>
-                          <p className="font-medium">{doc.filename}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {doc.doc_type} • {format(new Date(doc.created_at), 'dd MMM yyyy')}
-                          </p>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" asChild>
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-                          Ver
-                        </a>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground">No hay documentos cargados</p>
-              )}
+              <p className="text-muted-foreground">Documentos cargados y gestionados con IA...</p>
             </CardContent>
           </Card>
         </TabsContent>
