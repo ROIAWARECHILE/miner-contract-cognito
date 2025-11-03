@@ -117,7 +117,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'google/gemini-2.0-flash-thinking-exp', // More powerful model for complex visual analysis
         messages: [
           { 
             role: 'system', 
@@ -128,7 +128,7 @@ serve(async (req) => {
             content: [
               {
                 type: 'text',
-                text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.`
+                text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data according to the schema. This is a ${docType.toUpperCase()} document.\n\nIMPORTANT: Pay special attention to Chilean number format (period for thousands, comma for decimals).`
               },
               {
                 type: 'image_url',
@@ -140,12 +140,70 @@ serve(async (req) => {
           }
         ],
         response_format: { type: 'json_object' },
-        max_tokens: 4000
+        max_tokens: 8000 // Increased for complex tables and multiple tasks
       }),
     });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
+      console.error('AI extraction failed:', errorText);
+      
+      // Retry with gemini-2.5-pro if flash-thinking fails
+      if (job.attempts < 2) {
+        console.log('Retrying with gemini-2.5-pro...');
+        const retryResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${lovableApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-pro',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { 
+                role: 'user', 
+                content: [
+                  {
+                    type: 'text',
+                    text: `Filename: ${filename}\n\nAnalyze this PDF document and extract structured data. This is a ${docType.toUpperCase()} document.`
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:application/pdf;base64,${base64Pdf}`
+                    }
+                  }
+                ]
+              }
+            ],
+            response_format: { type: 'json_object' },
+            max_tokens: 8000
+          }),
+        });
+        
+        if (!retryResponse.ok) {
+          throw new Error(`AI extraction failed even with retry: ${retryResponse.status}`);
+        }
+        
+        const retryResult = await retryResponse.json();
+        const extracted = JSON.parse(retryResult.choices[0].message.content);
+        
+        await supabase.from('ingest_logs').insert({
+          job_id: job.id,
+          step: 'extract',
+          message: 'AI extraction completed with gemini-2.5-pro (retry)',
+          meta: { document_type: extracted.document_type, model_used: 'gemini-2.5-pro' }
+        });
+        
+        // Continue processing with retry result
+        await processExtractedData(supabase, job, extracted, arrayBuffer, filename, docType);
+        return new Response(
+          JSON.stringify({ ok: true, job_id: job.id, result: extracted }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       throw new Error(`AI extraction failed: ${aiResponse.status} ${errorText}`);
     }
 
@@ -156,83 +214,10 @@ serve(async (req) => {
       job_id: job.id,
       step: 'extract',
       message: 'AI extraction completed',
-      meta: { document_type: extracted.document_type }
+      meta: { document_type: extracted.document_type, model_used: 'gemini-2.0-flash-thinking' }
     });
 
-    // Apply upserts
-    if (extracted.upserts && extracted.upserts.length > 0) {
-      for (const upsert of extracted.upserts) {
-        await applyUpsert(supabase, upsert, job.project_prefix);
-      }
-    }
-
-    await supabase.from('ingest_logs').insert({
-      job_id: job.id,
-      step: 'upsert',
-      message: `Applied ${extracted.upserts?.length || 0} upserts`,
-      meta: {}
-    });
-
-    // Update contract totals if EDP
-    if (docType === 'edp' && extracted.contract_code) {
-      await supabase.from('ingest_logs').insert({
-        job_id: job.id,
-        step: 'aggregate',
-        message: 'Updating contract totals',
-        meta: { contract_code: extracted.contract_code }
-      });
-      await updateContractTotals(supabase, extracted.contract_code);
-      await supabase.from('ingest_logs').insert({
-        job_id: job.id,
-        step: 'aggregate',
-        message: 'Contract totals updated',
-        meta: {}
-      });
-    }
-
-    // Register document in documents table
-    const docTypeMap: Record<string, string> = {
-      'contract': 'original',
-      'edp': 'original',
-      'quality': 'analysis',
-      'sso': 'analysis',
-      'tech': 'analysis',
-      'sdi': 'original',
-      'addendum': 'original'
-    };
-
-    const { error: docError } = await supabase.from('documents').upsert({
-      contract_id: job.contract_id,
-      filename: filename,
-      file_url: job.storage_path,
-      doc_type: docTypeMap[docType] || 'original',
-      file_size: arrayBuffer.byteLength,
-      checksum: job.file_hash,
-      processing_status: 'completed',
-      extracted_data: extracted
-    }, { 
-      onConflict: 'contract_id,filename' 
-    });
-
-    if (docError) {
-      console.error('Error registering document:', docError);
-    }
-
-    // Mark job as done
-    await supabase
-      .from('ingest_jobs')
-      .update({ 
-        status: 'done',
-        updated_at: new Date().toISOString() 
-      })
-      .eq('id', job.id);
-
-    await supabase.from('ingest_logs').insert({
-      job_id: job.id,
-      step: 'complete',
-      message: 'Job completed successfully',
-      meta: { analytics: extracted.analytics }
-    });
+    await processExtractedData(supabase, job, extracted, arrayBuffer, filename, docType);
 
     return new Response(
       JSON.stringify({ 
@@ -281,6 +266,91 @@ serve(async (req) => {
     );
   }
 });
+
+// Helper function to process extracted data (used for both main flow and retry)
+async function processExtractedData(
+  supabase: any, 
+  job: any, 
+  extracted: any, 
+  arrayBuffer: ArrayBuffer, 
+  filename: string, 
+  docType: string
+) {
+  // Apply upserts
+  if (extracted.upserts && extracted.upserts.length > 0) {
+    for (const upsert of extracted.upserts) {
+      await applyUpsert(supabase, upsert, job.project_prefix);
+    }
+  }
+
+  await supabase.from('ingest_logs').insert({
+    job_id: job.id,
+    step: 'upsert',
+    message: `Applied ${extracted.upserts?.length || 0} upserts`,
+    meta: {}
+  });
+
+  // Update contract totals if EDP
+  if (docType === 'edp' && extracted.contract_code) {
+    await supabase.from('ingest_logs').insert({
+      job_id: job.id,
+      step: 'aggregate',
+      message: 'Updating contract totals',
+      meta: { contract_code: extracted.contract_code }
+    });
+    await updateContractTotals(supabase, extracted.contract_code);
+    await supabase.from('ingest_logs').insert({
+      job_id: job.id,
+      step: 'aggregate',
+      message: 'Contract totals updated',
+      meta: {}
+    });
+  }
+
+  // Register document in documents table
+  const docTypeMap: Record<string, string> = {
+    'contract': 'original',
+    'edp': 'original',
+    'quality': 'analysis',
+    'sso': 'analysis',
+    'tech': 'analysis',
+    'sdi': 'original',
+    'addendum': 'original'
+  };
+
+  const { error: docError } = await supabase.from('documents').upsert({
+    contract_id: job.contract_id,
+    filename: filename,
+    file_url: job.storage_path,
+    doc_type: docTypeMap[docType] || 'original',
+    file_size: arrayBuffer.byteLength,
+    checksum: job.file_hash,
+    processing_status: 'completed',
+    extracted_data: extracted
+  }, { 
+    onConflict: 'contract_id,filename' 
+  });
+
+  if (docError) {
+    console.error('Error registering document:', docError);
+  }
+
+  // Mark job as done
+  await supabase
+    .from('ingest_jobs')
+    .update({ 
+      status: 'done',
+      updated_at: new Date().toISOString() 
+    })
+    .eq('id', job.id);
+
+  await supabase.from('ingest_logs').insert({
+    job_id: job.id,
+    step: 'complete',
+    message: 'Job completed successfully',
+    meta: { analytics: extracted.analytics }
+  });
+}
 
 function buildSystemPrompt(docType: string): string {
   const basePrompt = `You are ContractOS AI parser. Extract structured data from mining contract PDFs.

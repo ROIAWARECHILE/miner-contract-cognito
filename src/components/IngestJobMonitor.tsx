@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import ProcessPendingJobsButton from './ProcessPendingJobsButton';
 import FixStuckJobButton from './FixStuckJobButton';
+import FixBrokenJobs from './FixBrokenJobs';
 
 interface IngestJobMonitorProps {
   contractId?: string;
@@ -15,32 +16,26 @@ interface IngestJobMonitorProps {
 export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) {
   const { data: jobs, isLoading } = useIngestJobs(contractId);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [lastJobStates, setLastJobStates] = useState<Record<string, string>>({});
 
-  // Show toast when job completes
+  // Track job state changes and show toasts
   useEffect(() => {
     if (!jobs) return;
     
-    const recentlyCompleted = jobs.find(
-      job => job.status === 'done' && 
-      new Date(job.updated_at).getTime() > Date.now() - 10000 // Last 10 seconds
-    );
-
-    if (recentlyCompleted) {
-      toast.success(`✅ Documento procesado exitosamente`, {
-        description: `${recentlyCompleted.document_type?.toUpperCase()} en ${recentlyCompleted.storage_path}`
-      });
-    }
-
-    const recentlyFailed = jobs.find(
-      job => job.status === 'failed' && 
-      new Date(job.updated_at).getTime() > Date.now() - 10000
-    );
-
-    if (recentlyFailed) {
-      toast.error(`❌ Error al procesar documento`, {
-        description: recentlyFailed.last_error || 'Error desconocido'
-      });
-    }
+    jobs.forEach(job => {
+      const prevState = lastJobStates[job.id];
+      const currentState = job.status;
+      
+      if (prevState && prevState !== currentState) {
+        if (currentState === 'done') {
+          toast.success(`✅ ${job.storage_path.split('/').pop()} procesado exitosamente`);
+        } else if (currentState === 'failed') {
+          toast.error(`❌ Error procesando ${job.storage_path.split('/').pop()}: ${job.last_error?.substring(0, 100)}`);
+        }
+      }
+      
+      setLastJobStates(prev => ({ ...prev, [job.id]: currentState }));
+    });
   }, [jobs]);
 
   if (isLoading) {
@@ -48,7 +43,7 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
       <Card className="p-4">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Cargando trabajos de ingesta...
+          ⏳ Cargando estado de procesamiento...
         </div>
       </Card>
     );
@@ -58,7 +53,7 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
     return (
       <Card className="p-4">
         <p className="text-sm text-muted-foreground">
-          No hay documentos procesándose en este momento
+          ✓ No hay documentos procesándose en este momento
         </p>
       </Card>
     );
@@ -74,6 +69,7 @@ export default function IngestJobMonitor({ contractId }: IngestJobMonitorProps) 
         <div className="flex gap-2">
           <FixStuckJobButton />
           <ProcessPendingJobsButton />
+          {contractId && <FixBrokenJobs contractId={contractId} />}
         </div>
       </div>
       

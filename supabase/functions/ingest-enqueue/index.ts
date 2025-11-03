@@ -50,17 +50,56 @@ serve(async (req) => {
     }
 
     if (!contract_id) {
+      console.error('❌ CRITICAL: contract_id is missing');
       return new Response(
-        JSON.stringify({ error: 'contract_id is required' }),
+        JSON.stringify({ 
+          error: 'contract_id is required. You must select a contract before uploading files.',
+          received: { storage_path, contract_id, document_type, project_prefix }
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Verify contract exists
+    const { data: contractExists, error: contractError } = await supabase
+      .from('contracts')
+      .select('id, code')
+      .eq('id', contract_id)
+      .single();
+
+    if (contractError || !contractExists) {
+      console.error('❌ Contract not found:', contract_id);
+      return new Response(
+        JSON.stringify({ error: `Contract ${contract_id} not found in database` }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('✓ Contract validated:', contractExists.code);
+
+    // Verify file exists in storage
+    const pathWithoutBucket = storage_path;
+    const { data: fileList, error: storageError } = await supabase.storage
+      .from('contracts')
+      .list(pathWithoutBucket.substring(0, pathWithoutBucket.lastIndexOf('/')), {
+        search: pathWithoutBucket.split('/').pop()
+      });
+
+    if (storageError || !fileList || fileList.length === 0) {
+      console.error('❌ File not found in storage:', storage_path);
+      return new Response(
+        JSON.stringify({ error: `File not found in storage: ${storage_path}` }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('✓ File verified in storage');
 
     // Auto-detect document_type from storage_path (FORCE detection from path, ignore what was sent)
     // Path format: "dominga/edp/filename.pdf" -> type = "edp"
     const pathParts = storage_path.split('/');
     const detectedDocType = pathParts.length >= 2 ? pathParts[1] : 'contract';
-    console.log('Detected document type from path:', detectedDocType);
+    console.log('✓ Detected document type from path:', detectedDocType);
 
     // Create job (on conflict do nothing due to unique constraint)
     const { data: job, error: jobError } = await supabase

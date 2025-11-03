@@ -41,7 +41,7 @@ export const useIngestJobs = (contractId?: string) => {
       if (error) throw error;
       return data as IngestJob[];
     },
-    refetchInterval: 5000, // Poll every 5 seconds
+    refetchInterval: 3000, // Aggressive polling every 3 seconds for real-time feedback
   });
 };
 

@@ -66,14 +66,18 @@ export default function DocumentUploader({
   }
 
   async function uploadAll() {
-    if (!files.length) return;
-    
     if (!contractId) {
-      toast.error('Debes seleccionar un contrato');
+      setLog(l => ['❌ ERROR CRÍTICO: No hay contrato seleccionado', ...l]);
+      toast.error('⚠️ Debes seleccionar un contrato antes de subir archivos', {
+        duration: 5000
+      });
       return;
     }
     
-    setBusy(true); 
+    if (!files.length) return;
+    
+    setLog(l => [`✓ Iniciando subida con contrato: ${contracts?.find(c => c.id === contractId)?.code}`, ...l]);
+    setBusy(true);
     setProgress(0); 
     setLog([]);
     
@@ -135,24 +139,34 @@ export default function DocumentUploader({
     toast.success(`${done} archivo(s) subido(s) y procesándose con IA`);
   }
 
+  // Prevent upload if no contract selected
+  const canUpload = contractId && files.length > 0 && !busy;
+  
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
       {!preselectedContractId && (
         <div className="mb-3 flex items-center gap-3">
-          <label className="text-sm font-medium text-muted-foreground">Contrato</label>
+          <label className="text-sm font-medium text-muted-foreground">Contrato *</label>
           <select 
             className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
             value={contractId} 
             onChange={e => setContractId(e.target.value)}
             required
           >
-            <option value="">Seleccionar contrato...</option>
+            <option value="">⚠️ Seleccionar contrato (requerido)</option>
             {contracts?.map(c => (
               <option key={c.id} value={c.id}>
                 {c.code} - {c.title}
               </option>
             ))}
           </select>
+        </div>
+      )}
+      
+      {/* Show selected contract clearly */}
+      {contractId && (
+        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
+          <strong>✓ Contrato seleccionado:</strong> {contracts?.find(c => c.id === contractId)?.code}
         </div>
       )}
       
@@ -188,10 +202,11 @@ export default function DocumentUploader({
           
           <Button 
             onClick={uploadAll} 
-            disabled={busy} 
+            disabled={!canUpload} 
             className="w-full"
+            title={!contractId ? 'Debes seleccionar un contrato primero' : ''}
           >
-            {busy ? 'Subiendo y procesando…' : 'Subir y procesar con IA'}
+            {busy ? 'Subiendo y procesando…' : !contractId ? '⚠️ Selecciona un contrato' : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
           </Button>
           
           {progress > 0 && (
