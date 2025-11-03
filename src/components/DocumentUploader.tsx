@@ -66,7 +66,8 @@ export default function DocumentUploader({
   }
 
   async function uploadAll() {
-    if (!contractId) {
+    // Only require contractId if document type is not 'contract'
+    if (docType !== 'contract' && !contractId) {
       setLog(l => ['❌ ERROR CRÍTICO: No hay contrato seleccionado', ...l]);
       toast.error('⚠️ Primero selecciona un contrato en el selector global', {
         duration: 5000,
@@ -82,16 +83,23 @@ export default function DocumentUploader({
       return;
     }
     
-    // Get contract code
-    const contract = contracts?.find(c => c.id === contractId);
-    const contract_code = contract?.code || '';
-    
-    if (!contract_code) {
-      toast.error('Error: Contrato no encontrado');
-      return;
+    // Get contract code (optional for contract type documents)
+    let contract_code = '';
+    if (contractId) {
+      const contract = contracts?.find(c => c.id === contractId);
+      contract_code = contract?.code || '';
+      
+      if (!contract_code && docType !== 'contract') {
+        toast.error('Error: Contrato no encontrado');
+        return;
+      }
     }
     
-    setLog(l => [`✓ Iniciando subida con contrato: ${contract_code}`, ...l]);
+    if (docType === 'contract') {
+      setLog(l => [`✓ Iniciando subida de documento de contrato (se creará automáticamente)`, ...l]);
+    } else {
+      setLog(l => [`✓ Iniciando subida con contrato: ${contract_code}`, ...l]);
+    }
     setBusy(true);
     setProgress(0); 
     setLog([]);
@@ -115,7 +123,11 @@ export default function DocumentUploader({
         };
 
         const folder = folderMap[docType] || docType;
-        const path = `${projectPrefix}/${contract_code}/${folder}/${safeName}`;
+        
+        // For contract documents without a pre-selected contract, use a pending path
+        const path = docType === 'contract' && !contract_code
+          ? `${projectPrefix}/pending_contracts/${folder}/${safeName}`
+          : `${projectPrefix}/${contract_code}/${folder}/${safeName}`;
 
         // Upload to storage
         const { error: upErr } = await supabase.storage
@@ -146,7 +158,7 @@ export default function DocumentUploader({
           'process-document',
           {
             body: {
-              contract_code,
+              contract_code: contract_code || null,
               storage_path: path,
               document_type: docType,
               edp_number: edpNumber,
@@ -184,12 +196,12 @@ export default function DocumentUploader({
     });
   }
 
-  // Prevent upload if no contract selected
-  const canUpload = contractId && files.length > 0 && !busy;
+  // Prevent upload if no contract selected (except for contract type documents)
+  const canUpload = (docType === 'contract' || contractId) && files.length > 0 && !busy;
   
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      {!preselectedContractId && (
+      {!preselectedContractId && docType !== 'contract' && (
         <div className="mb-3 flex items-center gap-3">
           <label className="text-sm font-medium text-muted-foreground">Contrato *</label>
           <select 
@@ -205,6 +217,12 @@ export default function DocumentUploader({
               </option>
             ))}
           </select>
+        </div>
+      )}
+      
+      {!preselectedContractId && docType === 'contract' && (
+        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
+          ℹ️ No es necesario seleccionar un contrato. El sistema lo creará automáticamente al procesar el documento.
         </div>
       )}
       
@@ -249,9 +267,13 @@ export default function DocumentUploader({
             onClick={uploadAll} 
             disabled={!canUpload} 
             className="w-full"
-            title={!contractId ? 'Debes seleccionar un contrato primero' : ''}
+            title={docType !== 'contract' && !contractId ? 'Debes seleccionar un contrato primero' : ''}
           >
-            {busy ? 'Subiendo y procesando…' : !contractId ? '⚠️ Selecciona un contrato' : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
+            {busy 
+              ? 'Subiendo y procesando…' 
+              : docType !== 'contract' && !contractId 
+                ? '⚠️ Selecciona un contrato' 
+                : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
           </Button>
           
           {progress > 0 && (

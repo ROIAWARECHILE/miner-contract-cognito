@@ -187,22 +187,33 @@ serve(async (req) => {
   try {
     console.log(`[process-document] Processing ${document_type}: ${storage_path}`);
 
-    // Get contract
-    const { data: contract, error: contractError } = await supabase
-      .from("contracts")
-      .select("id")
-      .eq("code", contract_code)
-      .single();
+    // Get or create contract
+    let contract;
+    
+    if (document_type === "contract" && !contract_code) {
+      // For contract documents without a code, we'll extract it and create the contract later
+      console.log(`[process-document] Contract document without code, will extract and create`);
+      contract = null;
+    } else {
+      // Get existing contract
+      const { data: existingContract, error: contractError } = await supabase
+        .from("contracts")
+        .select("id")
+        .eq("code", contract_code)
+        .single();
 
-    if (contractError || !contract) {
-      throw new Error(`Contract not found: ${contract_code}`);
+      if (contractError || !existingContract) {
+        throw new Error(`Contract not found: ${contract_code}`);
+      }
+      
+      contract = existingContract;
     }
 
-    // Create processing job
+    // Create processing job (contract_id may be null for new contracts)
     const { data: job, error: jobError } = await supabase
       .from("document_processing_jobs")
       .insert({
-        contract_id: contract.id,
+        contract_id: contract?.id || null,
         storage_path,
         document_type,
         status: "processing",
@@ -438,17 +449,54 @@ ${parsedText}`;
 
     console.log(`[process-document] OpenAI extraction completed`);
 
-    // Save structured extraction
-    await supabase.from("edp_extracted").insert({
-      contract_code,
-      edp_number: structured.edp_number || edp_number || null,
-      structured_json: structured
-    });
+    // Step 4.5: For contract documents, create the contract if it doesn't exist
+    if (document_type === "contract" && !contract) {
+      const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
+      const extractedTitle = structured.title || structured.name || "Contrato sin título";
+      
+      console.log(`[process-document] Creating new contract: ${extractedCode}`);
+      
+      const { data: newContract, error: contractCreateError } = await supabase
+        .from("contracts")
+        .insert({
+          code: extractedCode,
+          title: extractedTitle,
+          type: "service",
+          status: "draft",
+          metadata: structured
+        })
+        .select()
+        .single();
+      
+      if (contractCreateError) {
+        console.error(`[process-document] Failed to create contract:`, contractCreateError);
+        throw new Error(`Failed to create contract: ${contractCreateError.message}`);
+      }
+      
+      contract = newContract;
+      
+      // Update job with contract_id
+      await supabase
+        .from("document_processing_jobs")
+        .update({ contract_id: contract.id })
+        .eq("id", job.id);
+      
+      console.log(`[process-document] Contract created: ${contract.id}`);
+    }
 
-    console.log(`[process-document] Structured data saved to edp_extracted`);
+    // Save structured extraction
+    if (document_type === "edp") {
+      await supabase.from("edp_extracted").insert({
+        contract_code: contract_code || structured.contract_code,
+        edp_number: structured.edp_number || edp_number || null,
+        structured_json: structured
+      });
+
+      console.log(`[process-document] Structured data saved to edp_extracted`);
+    }
 
     // Step 5: Upsert into business tables (document_type specific)
-    if (document_type === "edp") {
+    if (document_type === "edp" && contract) {
       // Upsert payment state
       await supabase.from("payment_states").upsert({
         contract_id: contract.id,
@@ -477,9 +525,11 @@ ${parsedText}`;
       console.log(`[process-document] Tasks upserted: ${structured.tasks_executed?.length || 0}`);
 
       // Refresh contract metrics
-      await supabase.rpc("refresh_contract_metrics", { contract_code });
-
-      console.log(`[process-document] Contract metrics refreshed`);
+      const finalContractCode = contract_code || structured.contract_code;
+      if (finalContractCode) {
+        await supabase.rpc("refresh_contract_metrics", { contract_code: finalContractCode });
+        console.log(`[process-document] Contract metrics refreshed`);
+      }
     }
 
     // Mark job as completed
