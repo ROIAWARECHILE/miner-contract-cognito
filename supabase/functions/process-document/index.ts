@@ -392,7 +392,7 @@ serve(async (req) => {
     let userPrompt = `Document content:\n\n${parsedText}`;
 
     // For EDP documents, fetch and include the contract's task catalog
-    if (document_type === "edp") {
+    if (document_type === "edp" && contract) {
       const { data: tasks, error: tasksError } = await supabase
         .from("contract_tasks")
         .select("task_number, task_name")
@@ -496,7 +496,7 @@ ${parsedText}`;
     }
 
     // Step 5: Upsert into business tables (document_type specific)
-    if (document_type === "edp" && contract) {
+    if (document_type === "edp" && contract && contract.id) {
       // Upsert payment state
       await supabase.from("payment_states").upsert({
         contract_id: contract.id,
