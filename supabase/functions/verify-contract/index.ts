@@ -82,11 +82,16 @@ serve(async (req) => {
       actual: contract.code
     });
 
+    // Extract from metadata JSONB
+    const budgetUf = parseFloat(contract.metadata?.budget_uf || contract.contract_value || 0);
+    const client = contract.metadata?.client || 'N/A';
+    const contractor = contract.metadata?.contractor || 'N/A';
+
     checks.push({
       name: 'budget_uf',
-      status: Math.abs(parseFloat(contract.budget_uf) - expected.budget_uf) < 1 ? 'PASS' : 'FAIL',
+      status: Math.abs(budgetUf - expected.budget_uf) < 1 ? 'PASS' : 'FAIL',
       expected: expected.budget_uf,
-      actual: parseFloat(contract.budget_uf)
+      actual: budgetUf
     });
 
     checks.push({
@@ -98,16 +103,16 @@ serve(async (req) => {
 
     checks.push({
       name: 'client',
-      status: contract.client === expected.client ? 'PASS' : 'FAIL',
+      status: client === expected.client ? 'PASS' : 'FAIL',
       expected: expected.client,
-      actual: contract.client
+      actual: client
     });
 
     checks.push({
       name: 'contractor',
-      status: contract.contractor === expected.contractor ? 'PASS' : 'FAIL',
+      status: contractor === expected.contractor ? 'PASS' : 'FAIL',
       expected: expected.contractor,
-      actual: contract.contractor
+      actual: contractor
     });
 
     // Check computed metrics
@@ -171,6 +176,13 @@ serve(async (req) => {
             status: Math.abs(parseFloat(actualTask.spent_uf || 0) - expectedTask.spent_uf) < 0.5 ? 'PASS' : 'FAIL',
             expected: expectedTask.spent_uf,
             actual: parseFloat(actualTask.spent_uf || 0)
+          });
+
+          checks.push({
+            name: `task_${expectedTask.task_number}_progress`,
+            status: Math.abs(parseFloat(actualTask.progress_percentage || 0) - expectedTask.progress_pct) < 1 ? 'PASS' : 'FAIL',
+            expected: expectedTask.progress_pct,
+            actual: parseFloat(actualTask.progress_percentage || 0)
           });
         } else {
           checks.push({

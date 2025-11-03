@@ -80,6 +80,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ai_analyses_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       alerts: {
@@ -182,6 +189,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "analysis_cache_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       analysis_progress: {
@@ -222,6 +236,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "analysis_progress_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -439,6 +460,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "clauses_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       companies: {
@@ -531,6 +559,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "contract_anomalies_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       contract_embeddings: {
@@ -565,6 +600,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_embeddings_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -609,6 +651,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_tasks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -659,6 +708,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_text_chunks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -810,6 +866,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "document_chunks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+          {
             foreignKeyName: "document_chunks_parent_chunk_id_fkey"
             columns: ["parent_chunk_id"]
             isOneToOne: false
@@ -869,6 +932,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "documents_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       extraction_metrics: {
@@ -927,6 +997,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "extraction_metrics_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -1013,6 +1090,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ingest_jobs_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -1102,6 +1186,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "obligations_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       payment_states: {
@@ -1160,6 +1251,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_states_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -1325,6 +1423,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "regulatory_impacts_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+          {
             foreignKeyName: "regulatory_impacts_regulatory_change_id_fkey"
             columns: ["regulatory_change_id"]
             isOneToOne: false
@@ -1405,6 +1510,13 @@ export type Database = {
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "renewal_predictions_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
         ]
       }
       risk_events: {
@@ -1451,6 +1563,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "risk_events_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
           {
             foreignKeyName: "risk_events_source_clause_id_fkey"
@@ -1508,6 +1627,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "royalty_terms_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
           },
         ]
       }
@@ -1584,6 +1710,19 @@ export type Database = {
           total_analyses: number | null
           total_tokens_used: number | null
           unique_contracts_analyzed: number | null
+        }
+        Relationships: []
+      }
+      view_contract_overview: {
+        Row: {
+          available_uf: number | null
+          budget_uf: number | null
+          code: string | null
+          contract_id: string | null
+          edps_paid: number | null
+          progress_pct: number | null
+          spent_uf: number | null
+          title: string | null
         }
         Relationships: []
       }
