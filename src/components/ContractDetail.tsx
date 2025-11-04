@@ -17,6 +17,7 @@ import {
 import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
+import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 
 interface ContractDetailProps {
@@ -24,16 +25,18 @@ interface ContractDetailProps {
   onBack: () => void;
 }
 
-const CONTRACT_CODE = "AIPD-CSI001-1000-MN-0001";
-
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
-  const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useContractAnalytics(CONTRACT_CODE);
-  const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useContractTasks(CONTRACT_CODE);
-  const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(CONTRACT_CODE);
+  // FASE 3: Obtener contract_code dinámicamente desde contractId
+  const { data: contract, isLoading: contractLoading } = useContract(contractId);
+  const contractCode = contract?.code || '';
+  
+  const { data: analytics, isLoading: analyticsLoading, refetch: refetchAnalytics } = useContractAnalytics(contractCode);
+  const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useContractTasks(contractCode);
+  const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(contractCode);
   const { data: documents = [] } = useContractDocuments(contractId);
   
   // Enable real-time updates
-  useRealtimeContract(CONTRACT_CODE);
+  useRealtimeContract(contractCode);
   
   // Sistema de colores para porcentajes de progreso
   const getProgressBadgeVariant = (percentage: number): "destructive" | "warning" | "default" | "secondary" => {
@@ -112,7 +115,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       if (edpError) throw edpError;
 
       // 5. Refrescar métricas del contrato
-      await supabase.rpc('refresh_contract_metrics', { contract_code: CONTRACT_CODE });
+      await supabase.rpc('refresh_contract_metrics', { contract_code: contractCode });
 
       // 6. Refrescar datos en la UI
       await Promise.all([
@@ -131,7 +134,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const handleRefreshMetrics = async () => {
     try {
       const { error } = await supabase.rpc('refresh_contract_metrics', {
-        contract_code: CONTRACT_CODE
+        contract_code: contractCode
       });
       if (error) throw error;
       toast.success('Métricas actualizadas correctamente');
@@ -163,10 +166,23 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     { name: "Manuel Gutiérrez", role: "Consultor", specialty: "Ing. Civil Hidráulica" },
   ];
 
-  if (analyticsLoading || tasksLoading || paymentsLoading) {
+  // Mostrar loading mientras carga el contrato o datos
+  if (contractLoading || analyticsLoading || tasksLoading || paymentsLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <p className="text-muted-foreground">Cargando datos del contrato...</p>
+      </div>
+    );
+  }
+
+  // Si no hay contrato, mostrar error
+  if (!contract) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center space-y-3">
+          <p className="text-muted-foreground">Contrato no encontrado</p>
+          <Button onClick={onBack} variant="outline">Volver al Dashboard</Button>
+        </div>
       </div>
     );
   }
@@ -199,17 +215,21 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         <div className="flex items-start justify-between mb-6">
           <div>
             <Badge variant="secondary" className="font-mono mb-3">
-              {CONTRACT_CODE}
+              {contractCode}
             </Badge>
             <h1 className="text-3xl font-bold mb-2">
-              Estudio Hidrológico e Hidrogeológico Proyecto Dominga
+              {contract.title || 'Contrato sin título'}
             </h1>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>Andes Iron SpA</span>
+              <span>{(contract.metadata as any)?.client || 'Cliente no especificado'}</span>
               <span>•</span>
-              <span>Itasca Chile SpA</span>
-              <span>•</span>
-              <span>Inicio: 21 Jul 2025</span>
+              <span>{(contract.metadata as any)?.contractor || 'Contratista no especificado'}</span>
+              {contract.start_date && (
+                <>
+                  <span>•</span>
+                  <span>Inicio: {new Date(contract.start_date).toLocaleDateString('es-CL')}</span>
+                </>
+              )}
             </div>
           </div>
           <div className="text-right space-y-3">

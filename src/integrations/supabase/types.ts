@@ -1839,6 +1839,7 @@ export type Database = {
       }
     }
     Functions: {
+      cleanup_stale_processing_jobs: { Args: never; Returns: undefined }
       delete_contract_cascade: {
         Args: { p_contract_id: string }
         Returns: undefined

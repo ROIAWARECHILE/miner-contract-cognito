@@ -563,6 +563,17 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
+  // Timeout configuration (2 hours)
+  const PROCESSING_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+  const jobStartTime = Date.now();
+
+  // Helper to check timeout
+  const checkTimeout = () => {
+    if (Date.now() - jobStartTime > PROCESSING_TIMEOUT_MS) {
+      throw new Error('Processing timeout exceeded (2 hours)');
+    }
+  };
+
   try {
     // Parse request body
     const requestBody = await req.json();
@@ -572,6 +583,29 @@ serve(async (req) => {
 
     if (!storage_path) {
       throw new Error("storage_path is required");
+    }
+
+    // FASE 2: Check for duplicate jobs (últimos 15 minutos)
+    const { data: existingJobs } = await supabase
+      .from('document_processing_jobs')
+      .select('id, status')
+      .eq('storage_path', storage_path)
+      .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+      .in('status', ['queued', 'processing']);
+
+    if (existingJobs && existingJobs.length > 0) {
+      console.log(`[process-document] ⚠️ Job already exists for ${storage_path}, skipping`);
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          error: 'Job already in progress',
+          existing_job_id: existingJobs[0].id 
+        }),
+        { 
+          headers: { ...corsHeaders, "Content-Type": "application/json" }, 
+          status: 409 
+        }
+      );
     }
 
     // Step 1: Create a processing job
@@ -644,9 +678,12 @@ serve(async (req) => {
     const fileBlob = await fileResponse.blob();
     console.log(`[process-document] Downloaded file, size: ${fileBlob.size} bytes`);
 
+    // Check timeout before LlamaParse
+    checkTimeout();
+
     // Step 4: Parse with LlamaParse
     if (!llamaApiKey) {
-      console.warn("[process-document] LlamaParse API key not found, using fallback");
+      console.warn("[process-document] ❌ LlamaParse API key not found");
       await supabase
         .from("document_processing_jobs")
         .update({ 
@@ -774,6 +811,9 @@ serve(async (req) => {
         console.log("[process-document] No tasks found for contract, proceeding without tasks_map");
       }
     }
+
+    // Check timeout before OpenAI
+    checkTimeout();
 
     console.log(`[process-document] Sending to OpenAI for extraction (${document_type})...`);
 
@@ -1096,12 +1136,22 @@ serve(async (req) => {
       
       console.log(`[process-document] Successfully recalculated ${Object.keys(taskAccumulator).length} tasks from ${allEdps?.length || 0} EDPs`);
 
-      // Refresh contract metrics
-      // ✅ Usar contract_code (string) en vez de p_contract_id (uuid)
-      await supabase.rpc("refresh_contract_metrics", { 
+      // Check timeout before final operations
+      checkTimeout();
+
+      // Refresh contract metrics with enhanced error handling
+      console.log(`[process-document] 🔄 Refreshing contract metrics for ${contract.code}...`);
+      
+      const { data: rpcResult, error: rpcError } = await supabase.rpc("refresh_contract_metrics", { 
         contract_code: contract.code
       });
 
+      if (rpcError) {
+        console.error(`[process-document] ❌ Error refreshing metrics:`, rpcError);
+        throw new Error(`Failed to refresh contract metrics: ${rpcError.message}`);
+      }
+
+      console.log(`[process-document] ✅ Metrics refreshed successfully`);
       console.log(`[process-document] Payment state and tasks upserted for contract ${contract.code}`);
     }
 
@@ -1122,10 +1172,36 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
 
-  } catch (error) {
-    console.error("[process-document] Fatal error:", error);
+  } catch (error: any) {
+    // FASE 2: Enhanced error classification
+    let errorType = 'unknown';
+    let errorDetails = error?.message || String(error);
+    
+    // Clasificar tipos de error
+    if (errorDetails.includes('LLAMAPARSE_API_KEY')) {
+      errorType = 'missing_api_key_llamaparse';
+      errorDetails = 'LlamaParse API key not configured';
+    } else if (errorDetails.includes('OPENAI_API_KEY')) {
+      errorType = 'missing_api_key_openai';
+      errorDetails = 'OpenAI API key not configured';
+    } else if (error?.status === 400) {
+      errorType = 'bad_request_ai';
+      errorDetails = 'AI extraction failed: Invalid request format or content';
+    } else if (error?.status === 429) {
+      errorType = 'rate_limit';
+      errorDetails = 'Rate limit exceeded, retry in 60s';
+    } else if (errorDetails.includes('timeout')) {
+      errorType = 'timeout';
+      errorDetails = 'Processing timeout exceeded (2 hours)';
+    } else if (errorDetails.includes('Job already in progress')) {
+      errorType = 'duplicate_job';
+    } else if (errorDetails.includes('Contract not found')) {
+      errorType = 'contract_not_found';
+    }
+    
+    console.error(`[process-document] ❌ Error [${errorType}]:`, errorDetails);
 
-    // Try to update job status
+    // Try to update job status with error type
     try {
       const requestBody = await req.json();
       const { storage_path } = requestBody;
@@ -1139,17 +1215,17 @@ serve(async (req) => {
           .limit(1);
 
         if (jobs && jobs.length > 0) {
-          const updateResult = await supabase
+          await supabase
             .from("document_processing_jobs")
             .update({ 
               status: "failed", 
-              error_message: error instanceof Error ? error.message : String(error),
+              error: JSON.stringify({ type: errorType, details: errorDetails }),
               updated_at: new Date().toISOString() 
             })
             .eq("storage_path", storage_path)
             .eq("status", "processing");
 
-          console.log("[process-document] Job status updated to failed:", updateResult);
+          console.log(`[process-document] Job status updated to failed (${errorType})`);
         }
       }
     } catch (updateError) {
@@ -1158,9 +1234,10 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
+      error: errorDetails,
+      error_type: errorType
     }), {
-      status: 500,
+      status: errorType === 'duplicate_job' ? 409 : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }

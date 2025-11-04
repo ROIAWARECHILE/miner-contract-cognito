@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -38,16 +38,35 @@ export default function DocumentUploader({
   const { data: contracts } = useContracts();
 
   // Update contractId when preselectedContractId changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (preselectedContractId) {
       setContractId(preselectedContractId);
     }
   }, [preselectedContractId]);
 
-  React.useEffect(() => {
-    console.log('DocumentUploader - contractId:', contractId);
-    console.log('DocumentUploader - preselectedContractId:', preselectedContractId);
-  }, [contractId, preselectedContractId]);
+  // FASE 5: Verificar jobs atascados al montar el componente
+  useEffect(() => {
+    const checkStaleJobs = async () => {
+      const { data: staleJobs } = await supabase
+        .from('document_processing_jobs')
+        .select('id, storage_path, updated_at')
+        .eq('status', 'processing')
+        .lt('updated_at', new Date(Date.now() - 30 * 60 * 1000).toISOString()); // >30 min
+      
+      if (staleJobs && staleJobs.length > 0) {
+        console.warn('[DocumentUploader] ⚠️ Stale processing jobs detected:', staleJobs);
+        toast.warning(
+          `⚠️ Hay ${staleJobs.length} documento(s) atascado(s) en procesamiento`,
+          { 
+            description: 'Los documentos llevan >30 minutos procesando. Pueden requerir atención.',
+            duration: 6000
+          }
+        );
+      }
+    };
+    
+    checkStaleJobs();
+  }, []);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files) return;
