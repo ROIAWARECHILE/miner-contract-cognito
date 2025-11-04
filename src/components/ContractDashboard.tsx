@@ -59,20 +59,30 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
     }
   };
 
-  // Use real data from database only
-  const contracts = contractsData?.length ? contractsData.map(c => ({
-    id: c.id,
-    code: c.code,
-    title: c.title,
-    client: (c.metadata as any)?.client || "Sin información",
-    contractor: (c.metadata as any)?.contractor || "Sin información",
-    status: c.status,
-    progress: Math.round(((c.metadata as any)?.overall_progress_pct || 0)),
-    budget: (c.metadata as any)?.budget_uf || c.contract_value || 0,
-    spent: (c.metadata as any)?.spent_uf || 0,
-    slaStatus: "warning",
-    nextDeadline: "Rev.0 - 3 días restantes",
-  })) : [];
+  // Use real-time calculated metrics from payment_states
+  const contracts = contractsData?.length ? contractsData.map(c => {
+    // Priorizar métricas calculadas en tiempo real sobre metadata
+    const metrics = (c as any).calculated_metrics || {
+      spent_uf: (c.metadata as any)?.spent_uf || 0,
+      budget_uf: (c.metadata as any)?.budget_uf || c.contract_value || 0,
+      overall_progress_pct: (c.metadata as any)?.overall_progress_pct || 0,
+      available_uf: (c.metadata as any)?.available_uf || 0
+    };
+    
+    return {
+      id: c.id,
+      code: c.code,
+      title: c.title,
+      client: (c.metadata as any)?.client || "Sin información",
+      contractor: (c.metadata as any)?.contractor || "Sin información",
+      status: c.status,
+      progress: Math.round(metrics.overall_progress_pct),
+      budget: metrics.budget_uf,
+      spent: metrics.spent_uf,
+      slaStatus: "warning",
+      nextDeadline: "Rev.0 - 3 días restantes",
+    };
+  }) : [];
 
   const stats = [
     { 

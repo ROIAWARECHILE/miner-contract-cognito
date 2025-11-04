@@ -15,11 +15,40 @@ export const useContracts = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("contracts")
-        .select("*")
+        .select(`
+          *,
+          payment_states (
+            amount_uf,
+            status
+          )
+        `)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data;
+      
+      // Calcular métricas en tiempo real desde payment_states
+      return data?.map(contract => {
+        const paymentStates = (contract.payment_states as any) || [];
+        const spent_uf = paymentStates
+          .filter((ps: any) => ['approved', 'submitted'].includes(ps.status))
+          .reduce((sum: number, ps: any) => sum + (ps.amount_uf || 0), 0);
+        
+        const budget_uf = (contract.metadata as any)?.budget_uf || contract.contract_value || 0;
+        const overall_progress_pct = budget_uf > 0 
+          ? Math.round((spent_uf / budget_uf) * 100) 
+          : 0;
+        
+        // Enriquecer el contrato con métricas calculadas en tiempo real
+        return {
+          ...contract,
+          calculated_metrics: {
+            spent_uf,
+            available_uf: budget_uf - spent_uf,
+            overall_progress_pct,
+            budget_uf
+          }
+        };
+      });
     },
   });
 };

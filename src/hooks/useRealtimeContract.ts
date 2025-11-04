@@ -46,10 +46,15 @@ export function useRealtimeContract(contractCode: string | null) {
             description: 'Nuevo Estado de Pago agregado'
           });
           
-          // Invalidate payment and analytics queries
+          // Invalidate all contract-related queries to refresh dashboard cards
           queryClient.invalidateQueries({ queryKey: ['payment-states', contractCode] });
           queryClient.invalidateQueries({ queryKey: ['contract-analytics', contractCode] });
           queryClient.invalidateQueries({ queryKey: ['contracts'] });
+          queryClient.invalidateQueries({ queryKey: ['contract-tasks'] });
+          
+          toast.success('Dashboard actualizado', {
+            description: 'Las tarjetas reflejan los datos más recientes'
+          });
         }
       )
       .on(
