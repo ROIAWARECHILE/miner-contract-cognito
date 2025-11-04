@@ -958,8 +958,28 @@ serve(async (req) => {
         .single();
       
       if (existingContract) {
-        console.log(`[process-document] Contract already exists: ${extractedCode}, using existing`);
-        contract = existingContract;
+        console.log(`[process-document] Contract already exists: ${extractedCode}, updating with latest data`);
+        
+        // ✅ ACTUALIZAR el contrato con los datos más recientes
+        const { data: updatedContract, error: updateError } = await supabase
+          .from("contracts")
+          .update({
+            title: extractedTitle,
+            metadata: structured,  // Actualizar metadata con datos frescos
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", existingContract.id)
+          .select()
+          .single();
+        
+        if (updateError) {
+          console.error(`[process-document] Failed to update contract:`, updateError);
+          // No lanzar error, continuar con el contrato existente
+          contract = existingContract;
+        } else {
+          console.log(`[process-document] Contract updated successfully: ${extractedCode}`);
+          contract = updatedContract;
+        }
         
         // Update job with contract_id
         await supabase
@@ -996,6 +1016,36 @@ serve(async (req) => {
           .eq("id", job.id);
         
         console.log(`[process-document] Contract created: ${contract.id}`);
+      }
+      
+      // FASE 5: Validar que el contrato tenga datos completos
+      if (contract) {
+        const hasClient = contract.metadata?.client || structured.client;
+        const hasContractor = contract.metadata?.contractor || structured.contractor;
+        const hasBudget = contract.metadata?.budget_uf || structured.budget_uf;
+        
+        if (!hasClient || !hasContractor || !hasBudget) {
+          console.warn(
+            `[process-document] ⚠️ Contract ${contract.code || extractedCode} has incomplete data:`,
+            { hasClient: !!hasClient, hasContractor: !!hasContractor, hasBudget: !!hasBudget }
+          );
+          
+          // Marcar en metadata que requiere revisión
+          await supabase
+            .from("contracts")
+            .update({
+              metadata: {
+                ...(contract.metadata || {}),
+                incomplete_data: true,
+                missing_fields: [
+                  !hasClient && 'client',
+                  !hasContractor && 'contractor',
+                  !hasBudget && 'budget_uf'
+                ].filter(Boolean)
+              }
+            })
+            .eq("id", contract.id);
+        }
       }
     }
 

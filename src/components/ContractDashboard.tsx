@@ -69,6 +69,15 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       available_uf: (c.metadata as any)?.available_uf || 0
     };
     
+    // ✅ Detectar si el contrato tiene datos incompletos
+    const hasIncompleteData = 
+      !c.title || 
+      c.title === "Contrato sin título" ||
+      !(c.metadata as any)?.client ||
+      !(c.metadata as any)?.contractor ||
+      metrics.budget_uf === 0 ||
+      (c.metadata as any)?.incomplete_data === true;
+    
     return {
       id: c.id,
       code: c.code,
@@ -79,8 +88,11 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
       progress: Math.round(metrics.overall_progress_pct),
       budget: metrics.budget_uf,
       spent: metrics.spent_uf,
-      slaStatus: "warning",
-      nextDeadline: "Rev.0 - 3 días restantes",
+      slaStatus: hasIncompleteData ? "error" : "warning",
+      nextDeadline: hasIncompleteData 
+        ? "⚠️ Datos incompletos - Re-procesar documento"
+        : "Rev.0 - 3 días restantes",
+      hasIncompleteData  // ✅ Nuevo campo
     };
   }) : [];
 
@@ -216,7 +228,9 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
                     </Badge>
                     <Badge 
                       className={
-                        contract.slaStatus === "warning" 
+                        contract.slaStatus === "error"
+                          ? "bg-destructive text-destructive-foreground"
+                          : contract.slaStatus === "warning"
                           ? "bg-warning text-warning-foreground" 
                           : "bg-success text-success-foreground"
                       }
@@ -264,6 +278,16 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
                   <p className="font-semibold text-success">{(contract.budget - contract.spent).toLocaleString('es-CL')} UF</p>
                 </div>
               </div>
+              
+              {/* Indicador de datos incompletos */}
+              {contract.hasIncompleteData && (
+                <div className="mt-2 p-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Contrato con datos incompletos.</strong> Sube el documento nuevamente para actualizar la información.
+                  </span>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))
