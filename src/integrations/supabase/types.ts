@@ -2095,6 +2095,7 @@ export type Database = {
         | "sso"
         | "tech"
         | "minuta"
+        | "memorandum"
       obligation_status:
         | "pending"
         | "in_progress"
@@ -2349,6 +2350,7 @@ export const Constants = {
         "sso",
         "tech",
         "minuta",
+        "memorandum",
       ],
       obligation_status: [
         "pending",
