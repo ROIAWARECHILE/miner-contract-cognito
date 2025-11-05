@@ -132,6 +132,94 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     }
   };
 
+  const handleDeleteMemorandum = async (documentId: string, filename: string) => {
+    try {
+      // 1. Obtener el documento para verificar tipo y obtener datos
+      const { data: doc, error: fetchDocError } = await supabase
+        .from('documents')
+        .select('*, extracted_data')
+        .eq('id', documentId)
+        .single();
+
+      if (fetchDocError) throw fetchDocError;
+      if (!doc) throw new Error('Documento no encontrado');
+      
+      // Verificar que sea un memorandum
+      if (doc.doc_type !== 'memorandum') {
+        toast.error('Este documento no es un memorandum');
+        return;
+      }
+
+      const edpNumber = (doc.extracted_data as any)?.edp_number || 'desconocido';
+      const memoRef = (doc.extracted_data as any)?.memo_ref || filename;
+
+      // 2. Verificar si tiene datos de curva S en technical_reports
+      const { data: techReport, error: techError } = await supabase
+        .from('technical_reports')
+        .select('id, memo_ref, edp_number, curve')
+        .eq('contract_code', contractCode)
+        .eq('edp_number', edpNumber)
+        .maybeSingle();
+
+      const hasCurveData = techReport && techReport.curve;
+
+      // 3. Mostrar confirmación detallada
+      const confirmMessage = 
+        `¿Estás seguro de eliminar el memorandum?\n\n` +
+        `📄 Documento: ${filename}\n` +
+        `📊 EDP Asociado: #${edpNumber}\n` +
+        (hasCurveData 
+          ? `📈 Datos de Curva S: SÍ (se eliminarán)\n\n` 
+          : `📈 Datos de Curva S: NO\n\n`) +
+        `Esta acción eliminará:\n` +
+        `✗ Archivo PDF del memorandum\n` +
+        (hasCurveData ? `✗ Datos de curva S (gráfico se actualizará)\n` : '') +
+        `\n⚠️ Esta acción NO se puede deshacer.`;
+
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+
+      // 4. Eliminar datos de technical_reports (si existen)
+      if (techReport) {
+        const { error: deleteReportError } = await supabase
+          .from('technical_reports')
+          .delete()
+          .eq('id', techReport.id);
+
+        if (deleteReportError) {
+          console.error('Error al eliminar technical_report:', deleteReportError);
+          throw new Error('No se pudo eliminar los datos de curva S');
+        }
+      }
+
+      // 5. Eliminar el documento
+      const { error: deleteDocError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', documentId);
+
+      if (deleteDocError) {
+        console.error('Error al eliminar documento:', deleteDocError);
+        throw deleteDocError;
+      }
+
+      // 6. El realtime hook en useRealtimeContract se encargará de:
+      // - Invalidar contract-scurve query
+      // - Invalidar contract-documents query
+      // - Mostrar toast de actualización
+
+      toast.success(
+        `✓ Memorandum eliminado correctamente`,
+        { description: hasCurveData ? 'La curva S se actualizará automáticamente' : undefined }
+      );
+      
+    } catch (error) {
+      console.error('Error deleting memorandum:', error);
+      toast.error('Error al eliminar memorandum: ' + (error as Error).message);
+    }
+  };
+
   const handleRefreshMetrics = async () => {
     try {
       const { error } = await supabase.rpc('refresh_contract_metrics', {
@@ -406,8 +494,11 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                       <div className="flex-1">
                         <p className="font-medium">{doc.filename}</p>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            {doc.doc_type}
+                          <Badge 
+                            variant={doc.doc_type === 'memorandum' ? 'default' : 'outline'} 
+                            className={doc.doc_type === 'memorandum' ? 'text-xs bg-accent' : 'text-xs'}
+                          >
+                            {doc.doc_type === 'memorandum' ? '📊 Memorandum' : doc.doc_type}
                           </Badge>
                           <span>•</span>
                           <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
@@ -442,17 +533,34 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                           size="sm" 
                           variant="ghost"
                           onClick={() => handleDownload(doc.file_url)}
+                          title="Descargar documento"
                         >
                           <Download className="h-4 w-4" />
                         </Button>
-                        {doc.extracted_data?.edp_number && (
+                        
+                        {/* Botón de eliminación para EDPs */}
+                        {doc.doc_type === 'edp' && doc.extracted_data?.edp_number && (
                           <Button 
                             size="sm" 
                             variant="ghost"
-                            className="text-destructive hover:text-destructive"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={() => handleDeleteEDP(doc.id, doc.extracted_data.edp_number)}
+                            title="Eliminar EDP y sus datos asociados"
                           >
-                            🗑️
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        
+                        {/* Botón de eliminación para Memorandums */}
+                        {doc.doc_type === 'memorandum' && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteMemorandum(doc.id, doc.filename)}
+                            title="Eliminar memorandum y datos de curva S"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         )}
                       </div>

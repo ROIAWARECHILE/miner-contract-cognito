@@ -80,12 +80,20 @@ export function useRealtimeContract(contractCode: string | null) {
         },
         (payload) => {
           console.log('📡 Technical report (memorandum) updated:', payload);
-          toast.info('Memorandum procesado', {
-            description: 'Curva S actualizada con nuevos datos'
-          });
           
-          // Invalidate S-curve queries
+          if (payload.eventType === 'DELETE') {
+            toast.info('Memorandum eliminado', {
+              description: 'Curva S actualizada automáticamente'
+            });
+          } else {
+            toast.info('Memorandum procesado', {
+              description: 'Curva S actualizada con nuevos datos'
+            });
+          }
+          
+          // Invalidate S-curve and documents queries
           queryClient.invalidateQueries({ queryKey: ['contract-scurve', contractCode] });
+          queryClient.invalidateQueries({ queryKey: ['contract-documents'] });
         }
       )
       .subscribe((status) => {
