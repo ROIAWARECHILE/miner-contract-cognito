@@ -1263,8 +1263,10 @@ serve(async (req) => {
     if (document_type === "memorandum" && structured) {
       console.log(`[process-document] 📊 Saving memorandum to technical_reports table`);
       
+      let memoData: any = null;
+      
       try {
-        const memoData = {
+        memoData = {
           contract_id: contract?.id || null,
           contract_code: contract_code || structured.contract_code || null,
           edp_number: structured.edp_number || null,
@@ -1284,15 +1286,67 @@ serve(async (req) => {
           parsed_json: structured
         };
         
-        // Usar upsert para actualizar si ya existe (mismo contract_code + edp_number + version)
-        const { data: savedMemo, error: memoError } = await supabase
-          .from("technical_reports")
-          .upsert(memoData, {
-            onConflict: 'contract_code,edp_number,version',
-            ignoreDuplicates: false
-          })
-          .select()
-          .single();
+        // FASE 3: Validación pre-guardado
+        if (!memoData.contract_code) {
+          console.warn(`[process-document] ⚠️ Memorandum missing contract_code, cannot save to technical_reports`);
+          throw new Error("Memorandum extraction failed: contract_code is required");
+        }
+
+        // Si tiene edp_number pero no version, asignar "R0" por defecto
+        if (memoData.edp_number && !memoData.version) {
+          console.log(`[process-document] ℹ️ Memorandum has edp_number but no version, defaulting to R0`);
+          memoData.version = "R0";
+        }
+
+        console.log(`[process-document] 📊 Memo data prepared:`, {
+          contract_code: memoData.contract_code,
+          edp_number: memoData.edp_number,
+          version: memoData.version,
+          has_curve: !!memoData.curve?.dates,
+          curve_unit: memoData.curve?.unit
+        });
+        
+        // FASE 1: Lógica manual de INSERT/UPDATE para manejar NULL correctamente
+        // Si tiene edp_number, version y contract_code, buscar duplicado manualmente
+        let existingMemo = null;
+        if (memoData.contract_code && memoData.edp_number && memoData.version) {
+          const { data } = await supabase
+            .from("technical_reports")
+            .select("id")
+            .eq("contract_code", memoData.contract_code)
+            .eq("edp_number", memoData.edp_number)
+            .eq("version", memoData.version)
+            .maybeSingle();
+          
+          existingMemo = data;
+        }
+
+        let savedMemo, memoError;
+
+        if (existingMemo) {
+          // UPDATE del registro existente
+          console.log(`[process-document] 🔄 Updating existing memorandum: ${existingMemo.id}`);
+          const { data, error } = await supabase
+            .from("technical_reports")
+            .update(memoData)
+            .eq("id", existingMemo.id)
+            .select()
+            .single();
+          
+          savedMemo = data;
+          memoError = error;
+        } else {
+          // INSERT nuevo registro
+          console.log(`[process-document] ➕ Inserting new memorandum`);
+          const { data, error } = await supabase
+            .from("technical_reports")
+            .insert(memoData)
+            .select()
+            .single();
+          
+          savedMemo = data;
+          memoError = error;
+        }
         
         if (memoError) {
           console.error(`[process-document] ❌ Failed to save to technical_reports:`, memoError);
@@ -1320,8 +1374,20 @@ serve(async (req) => {
             }
           }
         }
-      } catch (memoSaveError) {
-        console.error(`[process-document] ❌ Exception saving memorandum:`, memoSaveError);
+      } catch (memoSaveError: any) {
+        // FASE 4: Logging mejorado
+        console.error(`[process-document] ❌ Exception saving memorandum:`, {
+          error: memoSaveError.message,
+          stack: memoSaveError.stack,
+          memoData: {
+            contract_code: memoData?.contract_code,
+            edp_number: memoData?.edp_number,
+            version: memoData?.version
+          }
+        });
+        
+        // NO re-lanzar el error, solo loggearlo
+        // El documento ya se guardó en 'documents', esto es solo metadata adicional
       }
     }
 
