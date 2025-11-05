@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { useContracts } from '@/hooks/useContract';
+import { useQuery } from '@tanstack/react-query';
 
 type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum'|'memorandum';
 
@@ -35,8 +36,31 @@ export default function DocumentUploader({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState<string[]>([]);
+  const [selectedEdpNumber, setSelectedEdpNumber] = useState<number | null>(null);
   
   const { data: contracts } = useContracts();
+
+  // Cargar EDPs disponibles del contrato seleccionado
+  const { data: availableEdps } = useQuery({
+    queryKey: ['contract-edps', contractId],
+    queryFn: async () => {
+      if (!contractId) return [];
+      
+      const { data: payments, error } = await supabase
+        .from('payment_states')
+        .select('edp_number, period_label, status, amount_uf')
+        .eq('contract_id', contractId)
+        .order('edp_number', { ascending: false });
+      
+      if (error) {
+        console.error('Error fetching EDPs:', error);
+        return [];
+      }
+      
+      return payments;
+    },
+    enabled: !!contractId && docType === 'memorandum'
+  });
 
   // Update contractId when preselectedContractId changes
   useEffect(() => {
@@ -44,6 +68,11 @@ export default function DocumentUploader({
       setContractId(preselectedContractId);
     }
   }, [preselectedContractId]);
+
+  // Resetear EDP seleccionado cuando cambia el contrato o el tipo de documento
+  useEffect(() => {
+    setSelectedEdpNumber(null);
+  }, [contractId, docType]);
 
   // FASE 5: Verificar jobs atascados al montar el componente
   useEffect(() => {
@@ -182,10 +211,11 @@ export default function DocumentUploader({
               contract_code: contract_code || null,
               storage_path: path,
               document_type: docType,
-              edp_number: edpNumber,
+              edp_number: docType === 'memorandum' ? selectedEdpNumber : edpNumber,
               metadata: {
                 filename: safeName,
-                uploaded_at: new Date().toISOString()
+                uploaded_at: new Date().toISOString(),
+                user_selected_edp: docType === 'memorandum' ? selectedEdpNumber : undefined
               }
             }
           }
@@ -245,7 +275,12 @@ export default function DocumentUploader({
   }
 
   // Prevent upload if no contract selected (except for contract type documents)
-  const canUpload = (docType === 'contract' || contractId) && files.length > 0 && !busy;
+  const canUpload = (
+    (docType === 'contract' || contractId) && 
+    files.length > 0 && 
+    !busy &&
+    (docType !== 'memorandum' || selectedEdpNumber !== null)
+  );
   
   return (
     <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
@@ -292,6 +327,49 @@ export default function DocumentUploader({
         </select>
       </div>
 
+      {/* Selector de EDP - Solo para memorandums */}
+      {docType === 'memorandum' && contractId && (
+        <div className="mb-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-muted-foreground">EDP Asociado *</label>
+          <select 
+            className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+            value={selectedEdpNumber || ''} 
+            onChange={e => setSelectedEdpNumber(e.target.value ? parseInt(e.target.value, 10) : null)}
+            required
+          >
+            <option value="">⚠️ Seleccionar EDP (requerido)</option>
+            {availableEdps && availableEdps.length > 0 ? (
+              availableEdps.map(edp => (
+                <option key={edp.edp_number} value={edp.edp_number}>
+                  EDP #{edp.edp_number} - {edp.period_label} ({edp.status}) - {edp.amount_uf} UF
+                </option>
+              ))
+            ) : (
+              <option value="" disabled>
+                No hay EDPs disponibles para este contrato
+              </option>
+            )}
+          </select>
+        </div>
+      )}
+
+      {/* Advertencia si no hay EDPs disponibles */}
+      {docType === 'memorandum' && contractId && availableEdps && availableEdps.length === 0 && (
+        <div className="mb-3 p-2 bg-destructive/10 border border-destructive/30 rounded text-sm text-destructive">
+          ⚠️ No hay EDPs registrados para este contrato. Primero debes procesar al menos un EDP.
+        </div>
+      )}
+
+      {/* Mostrar EDP seleccionado */}
+      {docType === 'memorandum' && selectedEdpNumber && (
+        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
+          <strong>✓ EDP seleccionado:</strong> #{selectedEdpNumber}
+          {availableEdps?.find(e => e.edp_number === selectedEdpNumber)?.period_label && 
+            ` - ${availableEdps.find(e => e.edp_number === selectedEdpNumber)?.period_label}`
+          }
+        </div>
+      )}
+
       <label className="w-full border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:bg-accent/50 transition-colors block">
         <input 
           type="file" 
@@ -315,13 +393,21 @@ export default function DocumentUploader({
             onClick={uploadAll} 
             disabled={!canUpload} 
             className="w-full"
-            title={docType !== 'contract' && !contractId ? 'Debes seleccionar un contrato primero' : ''}
+            title={
+              docType !== 'contract' && !contractId 
+                ? 'Debes seleccionar un contrato primero' 
+                : docType === 'memorandum' && !selectedEdpNumber
+                  ? 'Debes seleccionar un EDP para el memorándum'
+                  : ''
+            }
           >
             {busy 
               ? 'Subiendo y procesando…' 
               : docType !== 'contract' && !contractId 
                 ? '⚠️ Selecciona un contrato' 
-                : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
+                : docType === 'memorandum' && !selectedEdpNumber
+                  ? '⚠️ Selecciona un EDP'
+                  : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
           </Button>
           
           {progress > 0 && (

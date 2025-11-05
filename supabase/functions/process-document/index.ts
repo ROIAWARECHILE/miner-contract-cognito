@@ -679,7 +679,7 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("[process-document] Request body:", JSON.stringify(requestBody, null, 2));
 
-    const { contract_id, contract_code, storage_path, document_type } = requestBody;
+    const { contract_id, contract_code, storage_path, document_type, edp_number } = requestBody;
 
     if (!storage_path) {
       throw new Error("storage_path is required");
@@ -1266,10 +1266,41 @@ serve(async (req) => {
       let memoData: any = null;
       
       try {
+        // PRIORIDAD 1: EDP seleccionado manualmente por el usuario
+        let finalEdpNumber = structured.edp_number || null;
+        const aiExtractedEdp = structured.edp_number;
+        
+        if (edp_number && typeof edp_number === 'number') {
+          console.log(`[process-document] ✓ Using user-selected EDP: ${edp_number}`);
+          finalEdpNumber = edp_number;
+          
+          // VALIDACIÓN CRUZADA: Si el AI también extrajo un EDP, comparar
+          if (aiExtractedEdp && aiExtractedEdp !== edp_number) {
+            console.warn(`[process-document] ⚠️ EDP mismatch: user selected ${edp_number}, AI extracted ${aiExtractedEdp}`);
+            if (!structured.meta) structured.meta = {};
+            if (!structured.meta.warnings) structured.meta.warnings = [];
+            structured.meta.warnings.push(
+              `Usuario seleccionó EDP #${edp_number}, pero el contenido sugiere EDP #${aiExtractedEdp}. Se usó el seleccionado manualmente.`
+            );
+            structured.meta.review_required = true;
+          }
+        } else {
+          // PRIORIDAD 2: EDP extraído por el AI del contenido
+          if (aiExtractedEdp) {
+            console.log(`[process-document] ℹ️ Using AI-extracted EDP: ${aiExtractedEdp}`);
+          } else {
+            console.warn(`[process-document] ⚠️ No EDP number found (neither manual nor extracted)`);
+            if (!structured.meta) structured.meta = {};
+            if (!structured.meta.warnings) structured.meta.warnings = [];
+            structured.meta.warnings.push('No se pudo identificar el número de EDP ni manualmente ni del contenido');
+            structured.meta.review_required = true;
+          }
+        }
+      
         memoData = {
           contract_id: contract?.id || null,
           contract_code: contract_code || structured.contract_code || null,
-          edp_number: structured.edp_number || null,
+          edp_number: finalEdpNumber,
           memo_ref: structured.memo_ref || null,
           version: structured.version || null,
           date_issued: structured.date_issued || null,
@@ -1301,6 +1332,7 @@ serve(async (req) => {
         console.log(`[process-document] 📊 Memo data prepared:`, {
           contract_code: memoData.contract_code,
           edp_number: memoData.edp_number,
+          source: edp_number ? 'user_selected' : 'ai_extracted',
           version: memoData.version,
           has_curve: !!memoData.curve?.dates,
           curve_unit: memoData.curve?.unit
