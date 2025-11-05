@@ -71,6 +71,23 @@ export function useRealtimeContract(contractCode: string | null) {
           queryClient.invalidateQueries({ queryKey: ['contract-tasks', contractCode] });
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'technical_reports'
+        },
+        (payload) => {
+          console.log('📡 Technical report (memorandum) updated:', payload);
+          toast.info('Memorandum procesado', {
+            description: 'Curva S actualizada con nuevos datos'
+          });
+          
+          // Invalidate S-curve queries
+          queryClient.invalidateQueries({ queryKey: ['contract-scurve', contractCode] });
+        }
+      )
       .subscribe((status) => {
         console.log(`🔴 Realtime subscription status: ${status}`);
       });

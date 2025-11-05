@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useContractAnalytics, useContractTasks, usePaymentStates } from "@/hooks/useContractData";
+import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
@@ -34,6 +34,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: tasks = [], isLoading: tasksLoading, refetch: refetchTasks } = useContractTasks(contractCode);
   const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(contractCode);
   const { data: documents = [] } = useContractDocuments(contractId);
+  const { data: sCurveData = [], isLoading: sCurveLoading } = useContractSCurve(contractCode);
   
   // Enable real-time updates
   useRealtimeContract(contractCode);
@@ -147,16 +148,8 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     }
   };
 
-  // S-curve data (mock plan + real from payments)
-  const sCurveData = [
-    { month: "Jul", planned: 5, actual: analytics?.overall_progress_pct || 5 },
-    { month: "Ago", planned: 15, actual: 0 },
-    { month: "Sep", planned: 30, actual: 0 },
-    { month: "Oct", planned: 50, actual: 0 },
-    { month: "Nov", planned: 70, actual: 0 },
-    { month: "Dic", planned: 90, actual: 0 },
-    { month: "Ene", planned: 100, actual: 0 },
-  ];
+  // Use dynamic S-curve data from memorandums if available, otherwise show empty state
+  const hasSCurveData = sCurveData.length > 0;
 
   const team = [
     { name: "José Luis Delgado", role: "Líder de Proyecto", specialty: "Hidrogeólogo Principal" },
@@ -296,49 +289,70 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           {/* S-Curve */}
           <Card className="border-transparent shadow-md">
             <CardHeader>
-              <CardTitle>Curva S - Progreso del Contrato</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Curva S - Progreso del Contrato</CardTitle>
+                {hasSCurveData && (
+                  <Badge variant="secondary" className="gap-1">
+                    <FileText className="w-3 h-3" />
+                    Datos desde memorandums
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={sCurveData}>
-                  <defs>
-                    <linearGradient id="planned" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="actual" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="planned"
-                    stroke="hsl(var(--primary))"
-                    fill="url(#planned)"
-                    strokeWidth={2}
-                    name="Planificado"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="actual"
-                    stroke="hsl(var(--accent))"
-                    fill="url(#actual)"
-                    strokeWidth={2}
-                    name="Real"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              {sCurveLoading ? (
+                <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                  Cargando curva S...
+                </div>
+              ) : hasSCurveData ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={sCurveData}>
+                    <defs>
+                      <linearGradient id="planned" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="actual" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="hsl(var(--accent))" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="hsl(var(--accent))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                    <XAxis dataKey="month" className="text-xs" />
+                    <YAxis className="text-xs" label={{ value: 'HH Acumuladas', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'hsl(var(--card))', 
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }} 
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="planned"
+                      stroke="hsl(var(--primary))"
+                      fill="url(#planned)"
+                      strokeWidth={2}
+                      name="Planificado"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="actual"
+                      stroke="hsl(var(--accent))"
+                      fill="url(#actual)"
+                      strokeWidth={2}
+                      name="Ejecutado"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center">
+                  <div className="text-center space-y-2">
+                    <p className="text-muted-foreground">No hay datos de curva S disponibles</p>
+                    <p className="text-sm text-muted-foreground">Carga un memorandum para visualizar el progreso</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
