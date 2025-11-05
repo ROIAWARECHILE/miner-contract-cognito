@@ -19,6 +19,7 @@ import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocum
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface ContractDetailProps {
   contractId: string;
@@ -26,6 +27,8 @@ interface ContractDetailProps {
 }
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
+  const queryClient = useQueryClient();
+  
   // FASE 3: Obtener contract_code dinámicamente desde contractId
   const { data: contract, isLoading: contractLoading } = useContract(contractId);
   const contractCode = contract?.code || '';
@@ -153,24 +156,39 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       const edpNumber = (doc.extracted_data as any)?.edp_number || 'desconocido';
       const memoRef = (doc.extracted_data as any)?.memo_ref || filename;
 
-      // 2. Verificar si tiene datos de curva S en technical_reports
-      const { data: techReport, error: techError } = await supabase
-        .from('technical_reports')
-        .select('id, memo_ref, edp_number, curve')
-        .eq('contract_code', contractCode)
-        .eq('edp_number', edpNumber)
-        .maybeSingle();
+    // 2. Verificar si tiene datos de curva S en technical_reports
+    const edpNumberInt = parseInt(edpNumber) || edpNumber;
+    const { data: techReports, error: techError } = await supabase
+      .from('technical_reports')
+      .select('id, memo_ref, edp_number, curve')
+      .eq('contract_code', contractCode)
+      .eq('edp_number', edpNumberInt);
 
-      const hasCurveData = techReport && techReport.curve;
+    if (techError) {
+      console.error('Error fetching technical_reports:', techError);
+      throw new Error('No se pudo verificar datos de curva S');
+    }
+
+    const hasCurveData = techReports && techReports.length > 0;
+    const curveRecordsCount = techReports?.length || 0;
+
+    console.log('🗑️ Eliminando memorandum:', {
+      documentId,
+      filename,
+      edpNumber,
+      edpNumberInt,
+      edpNumberType: typeof edpNumber,
+      techReportsFound: curveRecordsCount
+    });
 
       // 3. Mostrar confirmación detallada
       const confirmMessage = 
         `¿Estás seguro de eliminar el memorandum?\n\n` +
-        `📄 Documento: ${filename}\n` +
-        `📊 EDP Asociado: #${edpNumber}\n` +
-        (hasCurveData 
-          ? `📈 Datos de Curva S: SÍ (se eliminarán)\n\n` 
-          : `📈 Datos de Curva S: NO\n\n`) +
+      `📄 Documento: ${filename}\n` +
+      `📊 EDP Asociado: #${edpNumber}\n` +
+      (hasCurveData 
+        ? `📈 Datos de Curva S: SÍ (${curveRecordsCount} registro${curveRecordsCount > 1 ? 's' : ''} se eliminarán)\n\n` 
+        : `📈 Datos de Curva S: NO\n\n`) +
         `Esta acción eliminará:\n` +
         `✗ Archivo PDF del memorandum\n` +
         (hasCurveData ? `✗ Datos de curva S (gráfico se actualizará)\n` : '') +
@@ -180,39 +198,51 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         return;
       }
 
-      // 4. Eliminar datos de technical_reports (si existen)
-      if (techReport) {
-        const { error: deleteReportError } = await supabase
-          .from('technical_reports')
-          .delete()
-          .eq('id', techReport.id);
-
-        if (deleteReportError) {
-          console.error('Error al eliminar technical_report:', deleteReportError);
-          throw new Error('No se pudo eliminar los datos de curva S');
-        }
-      }
-
-      // 5. Eliminar el documento
-      const { error: deleteDocError } = await supabase
-        .from('documents')
+    // 4. Eliminar datos de technical_reports (si existen)
+    if (techReports && techReports.length > 0) {
+      const { error: deleteReportError, count } = await supabase
+        .from('technical_reports')
         .delete()
-        .eq('id', documentId);
+        .eq('contract_code', contractCode)
+        .eq('edp_number', edpNumberInt);
 
-      if (deleteDocError) {
-        console.error('Error al eliminar documento:', deleteDocError);
-        throw deleteDocError;
+      if (deleteReportError) {
+        console.error('Error al eliminar technical_reports:', deleteReportError);
+        throw new Error(`No se pudo eliminar los datos de curva S: ${deleteReportError.message}`);
       }
 
-      // 6. El realtime hook en useRealtimeContract se encargará de:
-      // - Invalidar contract-scurve query
-      // - Invalidar contract-documents query
-      // - Mostrar toast de actualización
+      console.log(`✓ Eliminados ${count || 0} registros de technical_reports para EDP #${edpNumber}`);
+    }
 
-      toast.success(
-        `✓ Memorandum eliminado correctamente`,
-        { description: hasCurveData ? 'La curva S se actualizará automáticamente' : undefined }
-      );
+    // 5. Eliminar el documento
+    const { error: deleteDocError, count: docCount } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', documentId);
+
+    if (deleteDocError) {
+      console.error('Error al eliminar documento:', deleteDocError);
+      throw deleteDocError;
+    }
+
+    if (!docCount || docCount === 0) {
+      throw new Error('El documento no se eliminó correctamente');
+    }
+
+    console.log('✅ Eliminación completada:', {
+      documentDeleted: docCount,
+      techReportsDeleted: techReports?.length || 0
+    });
+
+    // 6. Invalidar queries manualmente para asegurar actualización
+    queryClient.invalidateQueries({ queryKey: ['contract-scurve', contractCode] });
+    queryClient.invalidateQueries({ queryKey: ['contract-documents'] });
+    queryClient.invalidateQueries({ queryKey: ['contract-analytics', contractCode] });
+
+    toast.success(
+      `✓ Memorandum eliminado correctamente`,
+      { description: hasCurveData ? 'La curva S se actualizará automáticamente' : undefined }
+    );
       
     } catch (error) {
       console.error('Error deleting memorandum:', error);
