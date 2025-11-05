@@ -95,8 +95,108 @@ CRITICAL VALIDATION:
 
 Return ONLY the JSON object (no markdown, no prose).`;
 
+// MEMORANDUM extraction prompt - specialized for technical progress reports
+const MEMORANDUM_EXTRACTION_PROMPT = `You are ContractOS — the MEMORANDUM extractor. 
+SCOPE: Apply ONLY when document_type is "memorandum" or "technical_report". Do not modify or redefine rules for other document types (EDP, contract, SDI, etc.).
+
+GOAL
+Transform LlamaParse JSON of a memorandum/"Respaldo EdP" into STRICT JSON that feeds the contract's S-Curve and stores key entities. Return ONLY the JSON object in the defined schema.
+
+INPUTS (runtime)
+- parsed_json: LlamaParse JSON (text + tables/figures).
+- contract_code: string.
+
+OUTPUT SCHEMA (JSON only; no prose)
+{
+  "document_type": "technical_report",
+  "contract_code": "<string>",
+  "edp_number": <int|null>,
+  "memo_ref": "<string|null>",
+  "version": "<string|null>",
+  "date_issued": "<YYYY-MM-DD|null>",
+  "author": "<string|null>",
+  "organization": "<string|null>",
+  "period_start": "<YYYY-MM-DD|null>",
+  "period_end": "<YYYY-MM-DD|null>",
+
+  "activities_summary": ["<string>", "..."],
+
+  "curve": {
+    "unit": "HH" | "UF",
+    "dates": ["YYYY-MM-DD", "..."],
+    "planned": [<number>, ...],
+    "executed": [<number>, ...],
+    "source_section": "<string|null>",
+    "notes": ["<string>", "..."]
+  },
+
+  "financial": {
+    "contract_budget_uf": <number|null>,
+    "progress_pct": <number|null>,
+    "edp_amount_uf": <number|null>,
+    "accumulated_total_uf": <number|null>
+  },
+
+  "figures": [
+    {"label":"<string>", "page": <int>, "kind":"curve|table|image"}
+  ],
+
+  "attachments": ["<string>", "..."],
+
+  "meta": {
+    "extraction_checks": {
+      "equal_lengths": true|false,
+      "monotonic_increase": true|false,
+      "units_consistent": true|false
+    },
+    "inferences": ["<string>", "..."],
+    "missing": ["<field>", "..."],
+    "review_required": true|false
+  }
+}
+
+RULES
+1) S-Curve: find sections named like "Curva S", "Horas acumuladas/ejecutadas", or "Plan vs Real". Prefer the largest table with explicit cumulative values. If per-period increments only, convert to cumulative by summing.
+2) Units: if curve is in hours, set unit "HH". If in financial UF, set "UF". Never mix units in the same curve.
+3) Dates: emit ISO YYYY-MM-DD. If only week labels exist, infer weekly dates from period_start spaced by 7 days to last reference. Arrays must have equal length.
+4) Numbers: normalize locales ("1.234,56" → 1234.56; "16.479.349" → 16479349).
+5) Activities: output up to 10 concise bullets of performed work.
+6) Validation flags in meta.extraction_checks: 
+   - equal_lengths: dates/planned/executed have same length.
+   - monotonic_increase: planned/executed are non-decreasing.
+   - units_consistent: single unit used across arrays.
+7) Safety: If any field is missing, set it to null and list it under meta.missing. If checks fail, set meta.review_required=true. Do not invent values. Return only the JSON object above.
+
+COMMON PATTERNS IN MEMORANDUMS:
+- Carátula: contract code, date, author/organization, version (R0/R1/R2), internal reference
+- Period covered: "Período: DD/MM/YYYY - DD/MM/YYYY"
+- Activities summary: bullet points or paragraphs of work performed (reuniones, recopilación datos, modelación, simulaciones, campañas)
+- S-Curve: usually titled "Curva S", "Plan vs Real", "Horas acumuladas", may be table or chart
+- Hours or progress table: weekly or monthly breakdown (if incremental, convert to cumulative)
+- Link to EDP: "Respaldo EdP N°X", sometimes repeats UF amounts
+- Annexes/attachments: list of supporting documents or data sources
+
+EXTRACTION PRIORITY:
+1. Contract code (from header/footer)
+2. EDP number (if memo accompanies an EDP)
+3. Period dates (start/end)
+4. S-Curve data (dates, planned, executed) - THIS IS CRITICAL
+5. Activities summary
+6. Financial references (budget, progress %, accumulated UF)
+7. Attachments and figures
+
+VALIDATION (non-blocking):
+- If curve.dates.length != curve.planned.length != curve.executed.length → equal_lengths=false, review_required=true
+- If planned or executed arrays are decreasing → monotonic_increase=false, review_required=true
+- If mixing HH and UF in same curve → units_consistent=false, review_required=true
+- If memo declares edp_number, note it for potential cross-validation (optional warning only)
+- If accumulated_total_uf or progress_pct present, do NOT override accounting data from EDP - use for context only
+
+Return ONLY the JSON object (no markdown, no \`\`\`json blocks, no explanatory text).`;
+
 // Document type specific prompts
 const EXTRACTION_PROMPTS: Record<string, string> = {
+  memorandum: MEMORANDUM_EXTRACTION_PROMPT,
   edp: EDP_EXTRACTION_PROMPT,
   
   contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
@@ -893,6 +993,84 @@ serve(async (req) => {
         console.warn(`[process-document] EDP #${structured.edp_number} validation warnings:`, warnings);
       }
     }
+
+    // ===== VALIDACIÓN ESPECÍFICA PARA MEMORANDUMS =====
+    if (document_type === "memorandum" && structured.curve) {
+      console.log(`[process-document] 🔍 Validating S-Curve data for memorandum`);
+      
+      const curve = structured.curve;
+      const dates = curve.dates || [];
+      const planned = curve.planned || [];
+      const executed = curve.executed || [];
+      
+      // Inicializar checks si no existen
+      if (!structured.meta) structured.meta = {};
+      if (!structured.meta.extraction_checks) {
+        structured.meta.extraction_checks = {
+          equal_lengths: true,
+          monotonic_increase: true,
+          units_consistent: true
+        };
+      }
+      
+      const checks = structured.meta.extraction_checks;
+      const warnings = structured.meta.warnings || [];
+      const missing = structured.meta.missing || [];
+      
+      // CHECK 1: Equal lengths
+      if (dates.length !== planned.length || dates.length !== executed.length) {
+        checks.equal_lengths = false;
+        warnings.push(
+          `S-Curve arrays have unequal lengths: dates(${dates.length}), planned(${planned.length}), executed(${executed.length})`
+        );
+        structured.meta.review_required = true;
+      }
+      
+      // CHECK 2: Monotonic increase (cumulative values)
+      const isMonotonic = (arr: number[]) => {
+        for (let i = 1; i < arr.length; i++) {
+          if (arr[i] < arr[i-1]) return false;
+        }
+        return true;
+      };
+      
+      if (!isMonotonic(planned) || !isMonotonic(executed)) {
+        checks.monotonic_increase = false;
+        warnings.push("S-Curve values are not monotonically increasing (should be cumulative)");
+        structured.meta.review_required = true;
+      }
+      
+      // CHECK 3: Units consistent
+      if (!curve.unit || (curve.unit !== "HH" && curve.unit !== "UF")) {
+        checks.units_consistent = false;
+        warnings.push(`S-Curve unit is invalid or missing: "${curve.unit}" (expected "HH" or "UF")`);
+        structured.meta.review_required = true;
+      }
+      
+      // CHECK 4: Missing critical fields
+      if (!structured.period_start) missing.push("period_start");
+      if (!structured.period_end) missing.push("period_end");
+      if (!structured.contract_code) missing.push("contract_code");
+      if (dates.length === 0) missing.push("curve.dates");
+      
+      if (missing.length > 0) {
+        warnings.push(`Missing critical fields: ${missing.join(", ")}`);
+        structured.meta.review_required = true;
+      }
+      
+      // Actualizar meta
+      structured.meta.warnings = warnings;
+      structured.meta.missing = missing;
+      structured.meta.extraction_checks = checks;
+      
+      console.log(`[process-document] Validation results:`, {
+        equal_lengths: checks.equal_lengths,
+        monotonic_increase: checks.monotonic_increase,
+        units_consistent: checks.units_consistent,
+        review_required: structured.meta.review_required,
+        warnings: warnings.length
+      });
+    }
     
     // Enhanced validation for CONTRACTS
     if (document_type === "contract") {
@@ -1077,6 +1255,74 @@ serve(async (req) => {
     if (docError) {
       console.error(`[process-document] Failed to save document:`, docError);
       throw new Error(`Failed to save document: ${docError.message}`);
+    }
+
+    console.log(`[process-document] ✅ Documento guardado en 'documents'`);
+
+    // ===== GUARDAR EN TECHNICAL_REPORTS SI ES MEMORANDUM =====
+    if (document_type === "memorandum" && structured) {
+      console.log(`[process-document] 📊 Saving memorandum to technical_reports table`);
+      
+      try {
+        const memoData = {
+          contract_id: contract?.id || null,
+          contract_code: contract_code || structured.contract_code || null,
+          edp_number: structured.edp_number || null,
+          memo_ref: structured.memo_ref || null,
+          version: structured.version || null,
+          date_issued: structured.date_issued || null,
+          author: structured.author || null,
+          organization: structured.organization || null,
+          period_start: structured.period_start || null,
+          period_end: structured.period_end || null,
+          activities_summary: structured.activities_summary || [],
+          curve: structured.curve || {},
+          financial: structured.financial || {},
+          figures: structured.figures || [],
+          attachments: structured.attachments || [],
+          extraction_meta: structured.meta || {},
+          parsed_json: structured
+        };
+        
+        // Usar upsert para actualizar si ya existe (mismo contract_code + edp_number + version)
+        const { data: savedMemo, error: memoError } = await supabase
+          .from("technical_reports")
+          .upsert(memoData, {
+            onConflict: 'contract_code,edp_number,version',
+            ignoreDuplicates: false
+          })
+          .select()
+          .single();
+        
+        if (memoError) {
+          console.error(`[process-document] ❌ Failed to save to technical_reports:`, memoError);
+        } else {
+          console.log(`[process-document] ✅ Saved to technical_reports: ${savedMemo.id}`);
+          
+          // Validar curva S si existe
+          if (savedMemo.curve && savedMemo.curve.dates) {
+            const curveChecks = savedMemo.extraction_meta?.extraction_checks || {};
+            
+            if (!curveChecks.equal_lengths) {
+              console.warn(`[process-document] ⚠️ S-Curve arrays have unequal lengths`);
+            }
+            
+            if (!curveChecks.monotonic_increase) {
+              console.warn(`[process-document] ⚠️ S-Curve values are not monotonically increasing`);
+            }
+            
+            if (!curveChecks.units_consistent) {
+              console.warn(`[process-document] ⚠️ S-Curve units are inconsistent`);
+            }
+            
+            if (savedMemo.extraction_meta?.review_required) {
+              console.warn(`[process-document] ⚠️ Memorandum requires manual review due to extraction issues`);
+            }
+          }
+        }
+      } catch (memoSaveError) {
+        console.error(`[process-document] ❌ Exception saving memorandum:`, memoSaveError);
+      }
     }
 
     // Step 5: Upsert into business tables (document_type specific)

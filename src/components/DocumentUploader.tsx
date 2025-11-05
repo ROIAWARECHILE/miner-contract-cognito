@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { useContracts } from '@/hooks/useContract';
 
-type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum';
+type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum'|'memorandum';
 
 const LABEL: Record<DocType,string> = {
   contract: 'Contrato',
@@ -14,7 +14,8 @@ const LABEL: Record<DocType,string> = {
   tech: 'Estudio Técnico',
   edp: 'Estado de Pago (EDP)',
   sdi: 'SDI',
-  addendum: 'Addendum'
+  addendum: 'Addendum',
+  memorandum: 'Memorándum / Respaldo EdP'
 };
 
 interface DocumentUploaderProps {
@@ -131,15 +132,16 @@ export default function DocumentUploader({
         const safeName = sanitize(f.name);
         
         // Construct storage path matching new system
-        const folderMap: Record<DocType, string> = {
-          contract: 'contract',
-          quality: 'quality',
-          sso: 'sso',
-          tech: 'tech',
-          edp: 'edp',
-          sdi: 'sdi',
-          addendum: 'addendum'
-        };
+    const folderMap: Record<DocType, string> = {
+      contract: 'contract',
+      quality: 'quality',
+      sso: 'sso',
+      tech: 'tech',
+      edp: 'edp',
+      sdi: 'sdi',
+      addendum: 'addendum',
+      memorandum: 'memo'
+    };
 
         const folder = folderMap[docType] || docType;
         

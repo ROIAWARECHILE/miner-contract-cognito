@@ -1790,6 +1790,90 @@ export type Database = {
         }
         Relationships: []
       }
+      technical_reports: {
+        Row: {
+          activities_summary: Json | null
+          attachments: Json | null
+          author: string | null
+          contract_code: string
+          contract_id: string | null
+          created_at: string | null
+          curve: Json | null
+          date_issued: string | null
+          edp_number: number | null
+          extraction_meta: Json | null
+          figures: Json | null
+          financial: Json | null
+          id: string
+          memo_ref: string | null
+          organization: string | null
+          parsed_json: Json | null
+          period_end: string | null
+          period_start: string | null
+          updated_at: string | null
+          version: string | null
+        }
+        Insert: {
+          activities_summary?: Json | null
+          attachments?: Json | null
+          author?: string | null
+          contract_code: string
+          contract_id?: string | null
+          created_at?: string | null
+          curve?: Json | null
+          date_issued?: string | null
+          edp_number?: number | null
+          extraction_meta?: Json | null
+          figures?: Json | null
+          financial?: Json | null
+          id?: string
+          memo_ref?: string | null
+          organization?: string | null
+          parsed_json?: Json | null
+          period_end?: string | null
+          period_start?: string | null
+          updated_at?: string | null
+          version?: string | null
+        }
+        Update: {
+          activities_summary?: Json | null
+          attachments?: Json | null
+          author?: string | null
+          contract_code?: string
+          contract_id?: string | null
+          created_at?: string | null
+          curve?: Json | null
+          date_issued?: string | null
+          edp_number?: number | null
+          extraction_meta?: Json | null
+          figures?: Json | null
+          financial?: Json | null
+          id?: string
+          memo_ref?: string | null
+          organization?: string | null
+          parsed_json?: Json | null
+          period_end?: string | null
+          period_start?: string | null
+          updated_at?: string | null
+          version?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "technical_reports_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "technical_reports_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
