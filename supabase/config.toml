@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.verify-contract]
 verify_jwt = false
+
+[functions.contract-assistant]
+verify_jwt = false
+
+[functions.daily-contract-review]
+verify_jwt = false

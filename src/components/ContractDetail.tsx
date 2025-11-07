@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { ContractAssistant } from "@/components/ContractAssistant";
 
 interface ContractDetailProps {
   contractId: string;
@@ -393,6 +394,10 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <FileText className="w-4 h-4" />
             Documentos
           </TabsTrigger>
+          <TabsTrigger value="assistant" className="gap-2">
+            <Bot className="w-4 h-4" />
+            Asistente IA
+          </TabsTrigger>
           <TabsTrigger value="team" className="gap-2">
             <Users className="w-4 h-4" />
             Equipo
@@ -695,6 +700,10 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="assistant">
+          <ContractAssistant contractId={contractId} contractCode={contractCode} />
         </TabsContent>
 
         <TabsContent value="team">
