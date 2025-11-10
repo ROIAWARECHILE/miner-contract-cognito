@@ -15,7 +15,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve } from "@/hooks/useContractData";
-import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
+import { useContractDocuments, downloadDocument, deleteDocumentFromStorage } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
@@ -60,194 +60,213 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     }
   };
 
-  const handleDeleteEDP = async (documentId: string, edpNumber: number) => {
+  const handleDeleteDocument = async (documentId: string, filename: string, docType: string) => {
     try {
-      // 1. Obtener el EDP completo con sus tareas
-      const { data: edp, error: fetchError } = await supabase
-        .from('payment_states')
+      console.log('🗑️ Iniciando eliminación de documento:', { documentId, filename, docType });
+
+      // 1. Obtener el documento completo
+      const { data: doc, error: fetchError } = await supabase
+        .from('documents')
         .select('*')
-        .eq('contract_id', contractId)
-        .eq('edp_number', edpNumber)
+        .eq('id', documentId)
         .single();
 
       if (fetchError) throw fetchError;
-      if (!edp) throw new Error('EDP no encontrado');
+      if (!doc) throw new Error('Documento no encontrado');
 
-      const tasksExecuted = (edp.data as any)?.tasks_executed || [];
-      const tasksCount = tasksExecuted.length;
+      const fileSize = doc.file_size ? `${(doc.file_size / 1024).toFixed(0)} KB` : 'Desconocido';
+      
+      // 2. Construir mensaje de confirmación según tipo de documento
+      let confirmMessage = '';
+      let impactDetails: string[] = [];
+      let willRefreshMetrics = false;
 
-      // Mostrar confirmación detallada
-      if (!confirm(
-        `¿Estás seguro de eliminar el EDP #${edpNumber}?\n\n` +
-        `Esta acción eliminará:\n` +
-        `✗ Estado de pago (${edp.amount_uf} UF)\n` +
-        `✗ Datos de ${tasksCount} tarea${tasksCount !== 1 ? 's' : ''} ejecutada${tasksCount !== 1 ? 's' : ''}\n` +
-        `✗ Documento PDF asociado\n` +
-        `✗ Recalculará todas las métricas del contrato\n\n` +
-        `⚠️ Esta acción NO se puede deshacer.`
-      )) {
+      if (docType === 'edp') {
+        const edpNumber = (doc.extracted_data as any)?.edp_number;
+        if (!edpNumber) {
+          toast.error('EDP sin número asociado');
+          return;
+        }
+
+        // Obtener el payment_state asociado
+        const { data: edp } = await supabase
+          .from('payment_states')
+          .select('*')
+          .eq('contract_id', contractId)
+          .eq('edp_number', edpNumber)
+          .single();
+
+        const tasksExecuted = (edp?.data as any)?.tasks_executed || [];
+        
+        confirmMessage = `¿Eliminar EDP #${edpNumber}?`;
+        impactDetails = [
+          `📄 Archivo: ${filename} (${fileSize})`,
+          `💰 Monto: ${edp?.amount_uf || 0} UF`,
+          `📊 Tareas afectadas: ${tasksExecuted.length}`,
+          '',
+          'Esta acción eliminará:',
+          '✗ Estado de pago de la base de datos',
+          '✗ Progreso de tareas ejecutadas',
+          '✗ Archivo PDF del servidor',
+          '✗ Recalculará métricas del contrato',
+        ];
+        willRefreshMetrics = true;
+
+      } else if (docType === 'memorandum') {
+        const edpNumber = (doc.extracted_data as any)?.edp_number || 'desconocido';
+        
+        // Verificar si tiene datos de curva S
+        const edpNumberInt = parseInt(edpNumber) || edpNumber;
+        const { data: techReports } = await supabase
+          .from('technical_reports')
+          .select('id')
+          .eq('contract_code', contractCode)
+          .eq('edp_number', edpNumberInt);
+
+        const hasCurveData = techReports && techReports.length > 0;
+        
+        confirmMessage = `¿Eliminar Memorandum?`;
+        impactDetails = [
+          `📄 Archivo: ${filename} (${fileSize})`,
+          `📊 EDP Asociado: #${edpNumber}`,
+          `📈 Datos de Curva S: ${hasCurveData ? `SÍ (${techReports.length} registros)` : 'NO'}`,
+          '',
+          'Esta acción eliminará:',
+          '✗ Archivo PDF del servidor',
+        ];
+        
+        if (hasCurveData) {
+          impactDetails.push('✗ Datos de curva S (gráfico se actualizará)');
+        }
+
+      } else {
+        // Otros tipos de documentos (original, contract, etc.)
+        confirmMessage = `¿Eliminar documento?`;
+        impactDetails = [
+          `📄 Archivo: ${filename} (${fileSize})`,
+          `📋 Tipo: ${docType}`,
+          '',
+          'Esta acción eliminará:',
+          '✗ Registro del documento',
+          '✗ Archivo PDF del servidor',
+        ];
+      }
+
+      impactDetails.push('', '⚠️ Esta acción NO se puede deshacer.');
+
+      // 3. Mostrar confirmación
+      if (!confirm(`${confirmMessage}\n\n${impactDetails.join('\n')}`)) {
         return;
       }
 
-      // 2. Restar spent_uf de cada tarea en contract_tasks
-      for (const task of tasksExecuted) {
-        const { error: subtractError } = await supabase.rpc('subtract_task_spent', {
-          p_contract_id: contractId,
-          p_task_number: task.task_number,
-          p_amount_to_subtract: parseFloat(task.spent_uf) || 0
-        });
+      console.log('✓ Confirmación recibida, procediendo con eliminación...');
 
-        if (subtractError) {
-          console.error(`Error al restar tarea ${task.task_number}:`, subtractError);
-          throw subtractError;
+      // 4. ELIMINAR DATOS RELACIONADOS según tipo de documento
+      if (docType === 'edp') {
+        const edpNumber = (doc.extracted_data as any)?.edp_number;
+        
+        // Obtener el payment_state
+        const { data: edp } = await supabase
+          .from('payment_states')
+          .select('*')
+          .eq('contract_id', contractId)
+          .eq('edp_number', edpNumber)
+          .single();
+
+        if (edp) {
+          const tasksExecuted = (edp.data as any)?.tasks_executed || [];
+          
+          // Restar spent_uf de cada tarea
+          for (const task of tasksExecuted) {
+            const { error: subtractError } = await supabase.rpc('subtract_task_spent', {
+              p_contract_id: contractId,
+              p_task_number: task.task_number,
+              p_amount_to_subtract: parseFloat(task.spent_uf) || 0
+            });
+
+            if (subtractError) {
+              console.error(`Error al restar tarea ${task.task_number}:`, subtractError);
+            }
+          }
+
+          // Eliminar payment_state
+          const { error: edpError } = await supabase
+            .from('payment_states')
+            .delete()
+            .eq('id', edp.id);
+
+          if (edpError) throw edpError;
+          console.log('✓ Payment state eliminado');
+        }
+
+      } else if (docType === 'memorandum') {
+        const edpNumber = (doc.extracted_data as any)?.edp_number;
+        const edpNumberInt = parseInt(edpNumber) || edpNumber;
+        
+        // Eliminar datos de technical_reports
+        const { error: deleteReportError } = await supabase
+          .from('technical_reports')
+          .delete()
+          .eq('contract_code', contractCode)
+          .eq('edp_number', edpNumberInt);
+
+        if (deleteReportError) {
+          console.warn('Error al eliminar technical_reports:', deleteReportError);
+        } else {
+          console.log('✓ Technical reports eliminados');
         }
       }
 
-      // 3. Eliminar el documento asociado
+      // Eliminar document_processing_jobs relacionados
+      const { error: jobsError } = await supabase
+        .from('document_processing_jobs')
+        .delete()
+        .eq('storage_path', doc.file_url);
+
+      if (jobsError) {
+        console.warn('Error al eliminar processing jobs:', jobsError);
+      }
+
+      // 5. ELIMINAR ARCHIVO DEL STORAGE
+      try {
+        await deleteDocumentFromStorage(doc.file_url);
+      } catch (storageError) {
+        console.warn('No se pudo eliminar del storage (continuando):', storageError);
+        // Continuar aunque falle - el archivo podría ya no existir
+      }
+
+      // 6. ELIMINAR REGISTRO DE DOCUMENTS
       const { error: docError } = await supabase
         .from('documents')
         .delete()
         .eq('id', documentId);
 
       if (docError) throw docError;
+      console.log('✓ Documento eliminado de la base de datos');
 
-      // 4. Eliminar el payment_state
-      const { error: edpError } = await supabase
-        .from('payment_states')
-        .delete()
-        .eq('id', edp.id);
+      // 7. REFRESCAR MÉTRICAS si es necesario
+      if (willRefreshMetrics) {
+        await supabase.rpc('refresh_contract_metrics', { contract_code: contractCode });
+        await Promise.all([
+          refetchAnalytics(),
+          refetchTasks(),
+          refetchPayments()
+        ]);
+      }
 
-      if (edpError) throw edpError;
+      // 8. INVALIDAR QUERIES
+      queryClient.invalidateQueries({ queryKey: ['contract-documents'] });
+      queryClient.invalidateQueries({ queryKey: ['contract-scurve', contractCode] });
+      queryClient.invalidateQueries({ queryKey: ['contract-analytics', contractCode] });
 
-      // 5. Refrescar métricas del contrato
-      await supabase.rpc('refresh_contract_metrics', { contract_code: contractCode });
+      toast.success(
+        `✓ Documento eliminado correctamente`,
+        { description: `${filename} y todos sus datos relacionados` }
+      );
 
-      // 6. Refrescar datos en la UI
-      await Promise.all([
-        refetchAnalytics(),
-        refetchTasks(),
-        refetchPayments()
-      ]);
-
-      toast.success(`✓ EDP #${edpNumber} eliminado correctamente`);
     } catch (error) {
-      console.error('Error deleting EDP:', error);
-      toast.error('Error al eliminar EDP: ' + (error as Error).message);
-    }
-  };
-
-  const handleDeleteMemorandum = async (documentId: string, filename: string) => {
-    try {
-      // 1. Obtener el documento para verificar tipo y obtener datos
-      const { data: doc, error: fetchDocError } = await supabase
-        .from('documents')
-        .select('*, extracted_data')
-        .eq('id', documentId)
-        .single();
-
-      if (fetchDocError) throw fetchDocError;
-      if (!doc) throw new Error('Documento no encontrado');
-      
-      // Verificar que sea un memorandum
-      if (doc.doc_type !== 'memorandum') {
-        toast.error('Este documento no es un memorandum');
-        return;
-      }
-
-      const edpNumber = (doc.extracted_data as any)?.edp_number || 'desconocido';
-      const memoRef = (doc.extracted_data as any)?.memo_ref || filename;
-
-    // 2. Verificar si tiene datos de curva S en technical_reports
-    const edpNumberInt = parseInt(edpNumber) || edpNumber;
-    const { data: techReports, error: techError } = await supabase
-      .from('technical_reports')
-      .select('id, memo_ref, edp_number, curve')
-      .eq('contract_code', contractCode)
-      .eq('edp_number', edpNumberInt);
-
-    if (techError) {
-      console.error('Error fetching technical_reports:', techError);
-      throw new Error('No se pudo verificar datos de curva S');
-    }
-
-    const hasCurveData = techReports && techReports.length > 0;
-    const curveRecordsCount = techReports?.length || 0;
-
-    console.log('🗑️ Eliminando memorandum:', {
-      documentId,
-      filename,
-      edpNumber,
-      edpNumberInt,
-      edpNumberType: typeof edpNumber,
-      techReportsFound: curveRecordsCount
-    });
-
-      // 3. Mostrar confirmación detallada
-      const confirmMessage = 
-        `¿Estás seguro de eliminar el memorandum?\n\n` +
-      `📄 Documento: ${filename}\n` +
-      `📊 EDP Asociado: #${edpNumber}\n` +
-      (hasCurveData 
-        ? `📈 Datos de Curva S: SÍ (${curveRecordsCount} registro${curveRecordsCount > 1 ? 's' : ''} se eliminarán)\n\n` 
-        : `📈 Datos de Curva S: NO\n\n`) +
-        `Esta acción eliminará:\n` +
-        `✗ Archivo PDF del memorandum\n` +
-        (hasCurveData ? `✗ Datos de curva S (gráfico se actualizará)\n` : '') +
-        `\n⚠️ Esta acción NO se puede deshacer.`;
-
-      if (!confirm(confirmMessage)) {
-        return;
-      }
-
-    // 4. Eliminar datos de technical_reports (si existen)
-    if (techReports && techReports.length > 0) {
-      const { error: deleteReportError, count } = await supabase
-        .from('technical_reports')
-        .delete()
-        .eq('contract_code', contractCode)
-        .eq('edp_number', edpNumberInt);
-
-      if (deleteReportError) {
-        console.error('Error al eliminar technical_reports:', deleteReportError);
-        throw new Error(`No se pudo eliminar los datos de curva S: ${deleteReportError.message}`);
-      }
-
-      console.log(`✓ Eliminados ${count || 0} registros de technical_reports para EDP #${edpNumber}`);
-    }
-
-    // 5. Eliminar el documento
-    const { error: deleteDocError, count: docCount } = await supabase
-      .from('documents')
-      .delete()
-      .eq('id', documentId);
-
-    if (deleteDocError) {
-      console.error('Error al eliminar documento:', deleteDocError);
-      throw deleteDocError;
-    }
-
-    if (!docCount || docCount === 0) {
-      throw new Error('El documento no se eliminó correctamente');
-    }
-
-    console.log('✅ Eliminación completada:', {
-      documentDeleted: docCount,
-      techReportsDeleted: techReports?.length || 0
-    });
-
-    // 6. Invalidar queries manualmente para asegurar actualización
-    queryClient.invalidateQueries({ queryKey: ['contract-scurve', contractCode] });
-    queryClient.invalidateQueries({ queryKey: ['contract-documents'] });
-    queryClient.invalidateQueries({ queryKey: ['contract-analytics', contractCode] });
-
-    toast.success(
-      `✓ Memorandum eliminado correctamente`,
-      { description: hasCurveData ? 'La curva S se actualizará automáticamente' : undefined }
-    );
-      
-    } catch (error) {
-      console.error('Error deleting memorandum:', error);
-      toast.error('Error al eliminar memorandum: ' + (error as Error).message);
+      console.error('❌ Error eliminando documento:', error);
+      toast.error('Error al eliminar documento: ' + (error as Error).message);
     }
   };
 
@@ -573,31 +592,16 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                           <Download className="h-4 w-4" />
                         </Button>
                         
-                        {/* Botón de eliminación para EDPs */}
-                        {doc.doc_type === 'edp' && doc.extracted_data?.edp_number && (
-                          <Button 
-                            size="sm" 
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteEDP(doc.id, doc.extracted_data.edp_number)}
-                            title="Eliminar EDP y sus datos asociados"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        
-                        {/* Botón de eliminación para Memorandums */}
-                        {doc.doc_type === 'memorandum' && (
-                          <Button 
-                            size="sm" 
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() => handleDeleteMemorandum(doc.id, doc.filename)}
-                            title="Eliminar memorandum y datos de curva S"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
+                        {/* Botón de eliminación para TODOS los documentos */}
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDeleteDocument(doc.id, doc.filename, doc.doc_type)}
+                          title="Eliminar documento completamente"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))
@@ -661,7 +665,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
                                 // Buscar el documento asociado a este EDP
                                 const doc = documents.find((d: any) => d.extracted_data?.edp_number === edp.edp_number);
                                 if (doc) {
-                                  handleDeleteEDP(doc.id, edp.edp_number);
+                                  handleDeleteDocument(doc.id, doc.filename, 'edp');
                                 } else {
                                   toast.error('No se encontró el documento asociado a este EDP');
                                 }

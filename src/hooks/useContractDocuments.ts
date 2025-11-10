@@ -41,3 +41,22 @@ export const downloadDocument = async (storagePath: string) => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 };
+
+export const deleteDocumentFromStorage = async (fileUrl: string) => {
+  // Extract storage path from file_url
+  // Format: contracts/dominga/edp/EDP N°1- 4065.001.pdf
+  const storagePath = fileUrl.replace(/^.*?contracts\//, '');
+  
+  console.log('🗑️ Eliminando archivo del Storage:', storagePath);
+  
+  const { error } = await supabase.storage
+    .from('contracts')
+    .remove([storagePath]);
+  
+  if (error) {
+    console.warn('⚠️ Error eliminando del Storage (el archivo podría no existir):', error);
+    // No throw error - el archivo podría ya no existir
+  } else {
+    console.log('✓ Archivo eliminado del Storage');
+  }
+};
