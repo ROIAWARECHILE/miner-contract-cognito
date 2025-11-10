@@ -14,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve } from "@/hooks/useContractData";
+import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve, useExecutiveSummary } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
@@ -25,6 +25,7 @@ import { ContractSummaryCard } from "@/components/ContractSummaryCard";
 import { ContractRisksTable } from "@/components/ContractRisksTable";
 import { ContractObligationsTable } from "@/components/ContractObligationsTable";
 import { ExtractionQualityDashboard } from "@/components/ExtractionQualityDashboard";
+import ContractExecutiveSummary from "@/components/ContractExecutiveSummary";
 
 interface ContractDetailProps {
   contractId: string;
@@ -43,6 +44,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(contractCode);
   const { data: documents = [] } = useContractDocuments(contractId);
   const { data: sCurveData = [], isLoading: sCurveLoading } = useContractSCurve(contractCode);
+  const { data: executiveSummary } = useExecutiveSummary(contractCode);
   
   // Enable real-time updates
   useRealtimeContract(contractCode);
@@ -429,6 +431,10 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <FileText className="w-4 h-4" />
             Ficha
           </TabsTrigger>
+          <TabsTrigger value="executive" className="gap-2">
+            <FileText className="w-4 h-4" />
+            Resumen Ejecutivo
+          </TabsTrigger>
           <TabsTrigger value="risks" className="gap-2">
             <AlertTriangle className="w-4 h-4" />
             Riesgos
@@ -469,6 +475,21 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             </Button>
           </div>
           <ContractSummaryCard contractCode={contractCode} />
+        </TabsContent>
+
+        {/* Nueva pestaña: Resumen Ejecutivo */}
+        <TabsContent value="executive" className="space-y-4">
+          {executiveSummary ? (
+            <ContractExecutiveSummary data={executiveSummary} />
+          ) : (
+            <Card>
+              <CardContent className="p-6 text-center text-muted-foreground">
+                <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p>No hay resumen ejecutivo disponible.</p>
+                <p className="text-sm mt-1">Re-procesa el contrato para generar el resumen.</p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* FASE 4: Nueva pestaña Riesgos */}

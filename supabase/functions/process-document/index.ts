@@ -467,12 +467,76 @@ VALIDATION:
 
 Return ONLY valid JSON (no markdown, no prose).`;
 
+// Executive summary prompt for dashboard cards
+const PROMPT_CONTRACT_EXEC_SUMMARY = `
+You are ContractOS — the CONTRACT executive-summary extractor.
+Goal: read LlamaParse JSON of a mining services contract and return STRICT JSON with the key executive data to render cards on the dashboard. Do not affect other extractors.
+
+INPUTS (runtime)
+- parsed_json: LlamaParse JSON (text+tables)
+- contract_code: string
+
+OUTPUT — JSON ONLY (no prose)
+{
+  "contract_code": "<string>",
+  "title": "<string|null>",
+  "dates": {
+    "signed_at": "<YYYY-MM-DD|null>",
+    "valid_from": "<YYYY-MM-DD|null>",
+    "valid_to": "<YYYY-MM-DD|null>",
+    "grace_days": <int|null>
+  },
+  "parties": {
+    "client": { "name":"<string|null>", "rut":"<string|null>", "rep":"<string|null>", "email":"<string|null>" },
+    "contractor": { "name":"<string|null>", "rut":"<string|null>", "rep":"<string|null>", "email":"<string|null>" }
+  },
+  "commercials": {
+    "currency": "UF|CLP|USD|null",
+    "budget_total": <number|null>,
+    "price_model": "<string|null>",
+    "reajustabilidad": "<string|null>",
+    "tax_notes": "<string|null>"
+  },
+  "scope": {
+    "objective": "<string|null>",
+    "documents_order": ["<string>", "..."]
+  },
+  "value_items": [
+    { "item":"<string>", "unit":"<string|null>", "unit_price": <number|null>, "notes":"<string|null>" }
+  ],
+  "admins": {
+    "client_admin": { "name":"<string|null>", "email":"<string|null>" },
+    "contractor_admin": { "name":"<string|null>", "email":"<string|null>" }
+  },
+  "legal": {
+    "termination": "<string|null>",
+    "jurisdiction": "<string|null>",
+    "laws": ["<string>", "..."],
+    "compliance": ["<string>", "..."]
+  },
+  "provenance": [
+    { "field":"<path>", "page": <int|null>, "clause_ref":"<string|null>", "excerpt":"<<=240 chars|null>" }
+  ],
+  "meta": { "missing": ["<field>", "..."], "notes": ["<string>", "..."] }
+}
+
+RULES
+- Normalize numbers ("4.501 UF" → 4501). Use ISO dates (YYYY-MM-DD).
+- If multiple totals appear, choose the formal adjudicated total (not optional scopes).
+- Keep "objective" concise (≤ 300 chars). Prefer explicit "Objeto/Alcance".
+- "documents_order" only if an order of precedence list appears.
+- "value_items" only if there is a price/partidas table; otherwise empty.
+- No hallucinations: unknown → null and add to meta.missing.
+- Return only the JSON object.
+`;
+
 // Document type specific prompts
 const EXTRACTION_PROMPTS: Record<string, string> = {
   memorandum: MEMORANDUM_EXTRACTION_PROMPT,
   edp: EDP_EXTRACTION_PROMPT,
   contract_summary: CONTRACT_SUMMARY_EXTRACTION_PROMPT,
   contract_risks: CONTRACT_RISKS_EXTRACTION_PROMPT,
+  contract_exec_summary: PROMPT_CONTRACT_EXEC_SUMMARY,
   
   contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
 
@@ -1073,6 +1137,49 @@ async function extractContractMetadata(
   console.log(`[extractContractMetadata] 📊 Total tokens consumed for metadata extraction: ${totalTokens}`);
   
   return { summary: summaryJson, risks: risksJson };
+}
+
+// Extract executive summary for dashboard cards
+async function extractExecutiveSummary(
+  parsedJson: any,
+  contractCode: string
+): Promise<any> {
+  console.log(`[extractExecutiveSummary] Processing contract: ${contractCode}`);
+  
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
+  
+  // Optimizar contenido - primeras 10000 palabras (incluye más que summary normal)
+  const relevantContent = {
+    text: parsedJson.text?.split(' ').slice(0, 10000).join(' ') || '',
+    tables: parsedJson.tables || [],
+    pages: parsedJson.pages?.length || 0
+  };
+  
+  const payload = {
+    model: "gpt-4o-mini",
+    temperature: 0,
+    max_tokens: 5000,
+    messages: [
+      { role: "system", content: EXTRACTION_PROMPTS.contract_exec_summary },
+      { 
+        role: "user", 
+        content: JSON.stringify({ 
+          parsed_json: relevantContent,
+          contract_code: contractCode
+        }) 
+      }
+    ]
+  };
+  
+  console.log("[extractExecutiveSummary] Calling OpenAI for executive summary extraction...");
+  const data = await callOpenAIWithRetry(payload, openaiKey);
+  const execSummary = JSON.parse(data.choices[0].message.content);
+  
+  const tokens = data.usage?.total_tokens || 0;
+  console.log(`[extractExecutiveSummary] ✅ Executive summary extracted - Tokens used: ${tokens}`);
+  
+  return execSummary;
 }
 
 // FASE 3: Upsert contract metadata into database
@@ -1782,14 +1889,19 @@ serve(async (req) => {
     // This runs regardless of whether the contract was just created or already existed
     if (document_type === "contract" && contract) {
       try {
-        console.log("[process-document] Extracting contract metadata (summary + risks)...");
+        console.log("[process-document] Extracting contract metadata (summary + risks + executive)...");
         const extractedCode = contract.code || structured.contract_code;
         
-        const { summary, risks } = await extractContractMetadata(
-          parsedJson,
-          extractedCode,
-          document_type
-        );
+        // Extracción paralela del resumen normal y ejecutivo
+        const [metadataResult, execSummary] = await Promise.all([
+          extractContractMetadata(parsedJson, extractedCode, document_type),
+          extractExecutiveSummary(parsedJson, extractedCode)
+        ]);
+        
+        const { summary, risks } = metadataResult;
+        
+        // Agregar el executive summary al raw_json del summary
+        summary.executive_summary = execSummary;
         
         await upsertContractMetadata(
           supabase,
