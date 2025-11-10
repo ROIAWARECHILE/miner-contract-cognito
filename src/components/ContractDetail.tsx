@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2, Bot, AlertTriangle } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,19 +14,13 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve, useExecutiveSummary } from "@/hooks/useContractData";
+import { useContractAnalytics, useContractTasks, usePaymentStates, useContractSCurve } from "@/hooks/useContractData";
 import { useContractDocuments, downloadDocument } from "@/hooks/useContractDocuments";
 import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
-import { ContractSummaryCard } from "@/components/ContractSummaryCard";
-import { ContractRisksTable } from "@/components/ContractRisksTable";
-import { ContractObligationsTable } from "@/components/ContractObligationsTable";
-import { ExtractionQualityDashboard } from "@/components/ExtractionQualityDashboard";
-import ContractExecutiveSummary, { ContractExecSummary } from "./ContractExecutiveSummary";
-import { ProcessingMonitor } from "./ProcessingMonitor";
 
 interface ContractDetailProps {
   contractId: string;
@@ -45,7 +39,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const { data: payments = [], isLoading: paymentsLoading, refetch: refetchPayments } = usePaymentStates(contractCode);
   const { data: documents = [] } = useContractDocuments(contractId);
   const { data: sCurveData = [], isLoading: sCurveLoading } = useContractSCurve(contractCode);
-  const { data: executiveSummary } = useExecutiveSummary(contractCode);
   
   // Enable real-time updates
   useRealtimeContract(contractCode);
@@ -274,37 +267,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
     }
   };
 
-  const handleReprocessContract = async () => {
-    try {
-      toast.info('Iniciando re-procesamiento del contrato...');
-      
-      const { data, error } = await supabase.functions.invoke('reprocess-contract', {
-        body: { contract_code: contractCode, document_type: 'contract' }
-      });
-
-      if (error) throw error;
-
-      if (data?.success) {
-        toast.success('Re-procesamiento iniciado correctamente', {
-          description: 'La extracción de ficha técnica y riesgos se completará en 2-3 minutos'
-        });
-        
-        // Refrescar datos después de unos segundos
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ['contract-summaries'] });
-          queryClient.invalidateQueries({ queryKey: ['contract-risks'] });
-          queryClient.invalidateQueries({ queryKey: ['contract-obligations'] });
-          queryClient.invalidateQueries({ queryKey: ['extraction-quality'] });
-        }, 5000);
-      } else {
-        throw new Error(data?.error || 'Error desconocido');
-      }
-    } catch (error) {
-      console.error('Error reprocessing contract:', error);
-      toast.error('Error al re-procesar contrato: ' + (error as Error).message);
-    }
-  };
-
   // Use dynamic S-curve data from memorandums if available, otherwise show empty state
   const hasSCurveData = sCurveData.length > 0;
 
@@ -387,26 +349,15 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               {analytics?.overall_progress_pct.toFixed(0)}%
             </div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleRefreshMetrics}
-                className="gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Actualizar Métricas
-              </Button>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={handleReprocessContract}
-                className="gap-2"
-              >
-                <Bot className="w-4 h-4" />
-                Re-procesar IA
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefreshMetrics}
+              className="gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Actualizar Métricas
+            </Button>
           </div>
         </div>
 
@@ -439,28 +390,12 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <TrendingUp className="w-4 h-4" />
             Progreso
           </TabsTrigger>
-          <TabsTrigger value="ficha" className="gap-2">
-            <FileText className="w-4 h-4" />
-            Ficha
-          </TabsTrigger>
-          <TabsTrigger value="executive" className="gap-2">
-            <FileText className="w-4 h-4" />
-            Resumen Ejecutivo
-          </TabsTrigger>
-          <TabsTrigger value="risks" className="gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            Riesgos
-          </TabsTrigger>
-          <TabsTrigger value="quality" className="gap-2">
-            <TrendingUp className="w-4 h-4" />
-            Calidad
-          </TabsTrigger>
           <TabsTrigger value="documents" className="gap-2">
             <FileText className="w-4 h-4" />
             Documentos
           </TabsTrigger>
           <TabsTrigger value="assistant" className="gap-2">
-            <Bot className="w-4 h-4" />
+            <FileText className="w-4 h-4" />
             Asistente IA
           </TabsTrigger>
           <TabsTrigger value="team" className="gap-2">
@@ -472,48 +407,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             Cronograma
           </TabsTrigger>
         </TabsList>
-
-        {/* FASE 4: Nueva pestaña Ficha */}
-        <TabsContent value="ficha" className="space-y-4">
-          <div className="flex justify-end mb-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleReprocessContract}
-              className="gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Re-procesar Contrato
-            </Button>
-          </div>
-          <ContractSummaryCard contractCode={contractCode} />
-        </TabsContent>
-
-        {/* Nueva pestaña: Resumen Ejecutivo */}
-        <TabsContent value="executive" className="space-y-4">
-          {executiveSummary ? (
-            <ContractExecutiveSummary data={executiveSummary} />
-          ) : (
-            <Card>
-              <CardContent className="p-6 text-center text-muted-foreground">
-                <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>No hay resumen ejecutivo disponible.</p>
-                <p className="text-sm mt-1">Re-procesa el contrato para generar el resumen.</p>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* FASE 4: Nueva pestaña Riesgos */}
-        <TabsContent value="risks" className="space-y-4">
-          <ContractRisksTable contractCode={contractCode} />
-          <ContractObligationsTable contractCode={contractCode} />
-        </TabsContent>
-
-        {/* Nueva pestaña: Calidad de Extracción */}
-        <TabsContent value="quality" className="space-y-4">
-          <ExtractionQualityDashboard contractCode={contractCode} />
-        </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
           {/* S-Curve */}
