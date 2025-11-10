@@ -233,8 +233,8 @@ export const useContractSCurve = (contractCode: string) => {
   });
 };
 
-// Hook para cargar executive summary
-export function useExecutiveSummary(contractCode: string) {
+// Hook to fetch executive summary from contract_summaries
+export const useExecutiveSummary = (contractCode: string) => {
   return useQuery({
     queryKey: ['contract-executive-summary', contractCode],
     queryFn: async () => {
@@ -249,7 +249,7 @@ export function useExecutiveSummary(contractCode: string) {
       if (error) throw error;
       
       // Extraer executive_summary del raw_json
-      const execSummary = data?.raw_json?.executive_summary;
+      const execSummary = (data?.raw_json as any)?.executive_summary;
       return execSummary || null;
     },
     enabled: !!contractCode
