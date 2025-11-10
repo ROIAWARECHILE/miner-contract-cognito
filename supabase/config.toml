@@ -3,6 +3,9 @@ project_id = "wnkifmuhkhdjbswraini"
 [functions.process-document]
 verify_jwt = false
 
+[functions.reprocess-contract]
+verify_jwt = false
+
 [functions.verify-contract]
 verify_jwt = false
 

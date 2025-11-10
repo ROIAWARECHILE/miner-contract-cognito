@@ -387,15 +387,26 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               {analytics?.overall_progress_pct.toFixed(0)}%
             </div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRefreshMetrics}
-              className="gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Actualizar Métricas
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRefreshMetrics}
+                className="gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Actualizar Métricas
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleReprocessContract}
+                className="gap-2"
+              >
+                <Bot className="w-4 h-4" />
+                Re-procesar IA
+              </Button>
+            </div>
           </div>
         </div>
 
