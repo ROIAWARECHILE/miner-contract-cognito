@@ -759,6 +759,202 @@ function normalizeTaskNumber(taskNumber: string, taskName: string): string {
   return taskNumber;
 }
 
+// FASE 3: Extract contract metadata (summary + risks)
+async function extractContractMetadata(
+  parsedJson: any,
+  contractCode: string,
+  docType: string
+): Promise<{ summary: any; risks: any }> {
+  console.log(`[extractContractMetadata] Processing ${docType} for contract: ${contractCode}`);
+  
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
+  
+  // Extract summary
+  const summaryPrompt = EXTRACTION_PROMPTS.contract_summary;
+  const summaryPayload = {
+    model: "gpt-4o",
+    temperature: 0,
+    messages: [
+      { role: "system", content: summaryPrompt },
+      { 
+        role: "user", 
+        content: JSON.stringify({ 
+          parsed_json: parsedJson, 
+          contract_code: contractCode, 
+          doc_type: docType 
+        }) 
+      }
+    ]
+  };
+  
+  const summaryRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${openaiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(summaryPayload)
+  });
+  
+  if (!summaryRes.ok) {
+    const err = await summaryRes.text();
+    throw new Error(`OpenAI summary error: ${err}`);
+  }
+  
+  const summaryData = await summaryRes.json();
+  const summaryJson = JSON.parse(summaryData.choices[0].message.content);
+  console.log("[extractContractMetadata] Summary extracted successfully");
+  
+  // Extract risks
+  const risksPrompt = EXTRACTION_PROMPTS.contract_risks;
+  const risksPayload = {
+    model: "gpt-4o",
+    temperature: 0,
+    messages: [
+      { role: "system", content: risksPrompt },
+      { 
+        role: "user", 
+        content: JSON.stringify({ 
+          parsed_json: parsedJson, 
+          contract_code: contractCode, 
+          doc_type: docType,
+          version_tag: summaryJson.version_tag || null
+        }) 
+      }
+    ]
+  };
+  
+  const risksRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${openaiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(risksPayload)
+  });
+  
+  if (!risksRes.ok) {
+    const err = await risksRes.text();
+    throw new Error(`OpenAI risks error: ${err}`);
+  }
+  
+  const risksData = await risksRes.json();
+  const risksJson = JSON.parse(risksData.choices[0].message.content);
+  console.log("[extractContractMetadata] Risks extracted successfully");
+  
+  return { summary: summaryJson, risks: risksJson };
+}
+
+// FASE 3: Upsert contract metadata into database
+async function upsertContractMetadata(
+  supabase: any,
+  contractId: string,
+  contractCode: string,
+  summary: any,
+  risks: any
+): Promise<void> {
+  console.log(`[upsertContractMetadata] Upserting for contract: ${contractCode}`);
+  
+  // 1. Upsert contract_summaries
+  const { error: summaryErr } = await supabase
+    .from('contract_summaries')
+    .upsert({
+      contract_id: contractId,
+      contract_code: contractCode,
+      version_tag: summary.version_tag,
+      date_issued: summary.date_issued,
+      validity_start: summary.validity_start,
+      validity_end: summary.validity_end,
+      currency: summary.currency,
+      budget_total: summary.budget_total,
+      reajustabilidad: summary.reajustabilidad,
+      milestones: summary.milestones,
+      compliance_requirements: summary.compliance_requirements,
+      parties: summary.parties,
+      summary_md: summary.summary_md,
+      provenance: summary.provenance,
+      raw_json: summary,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'contract_id',
+      ignoreDuplicates: false
+    });
+  
+  if (summaryErr) {
+    console.error("[upsertContractMetadata] Error upserting summary:", summaryErr);
+    throw new Error(`Failed to upsert contract summary: ${summaryErr.message}`);
+  }
+  
+  console.log("[upsertContractMetadata] ✓ Summary upserted");
+  
+  // 2. Insert contract_risks (findings)
+  for (const finding of (risks.findings || [])) {
+    // Check for duplicates using title + clause_ref
+    const { data: existing } = await supabase
+      .from('contract_risks')
+      .select('id')
+      .eq('contract_code', contractCode)
+      .eq('title', finding.title)
+      .eq('clause_ref', finding.clause_ref || null)
+      .maybeSingle();
+    
+    if (existing) {
+      console.log(`[upsertContractMetadata] Skipping duplicate risk: ${finding.title}`);
+      continue;
+    }
+    
+    const { error: riskErr } = await supabase
+      .from('contract_risks')
+      .insert({
+        contract_id: contractId,
+        contract_code: contractCode,
+        risk_type: finding.risk_type,
+        title: finding.title,
+        description: finding.description,
+        severity: finding.severity,
+        probability: finding.probability,
+        obligation: finding.obligation,
+        deadline: finding.deadline,
+        periodicity: finding.periodicity,
+        clause_ref: finding.clause_ref,
+        page: finding.page,
+        source_doc_type: finding.source_doc_type,
+        source_version: risks.version_tag || finding.source_version,
+        source_excerpt: finding.source_excerpt
+      });
+    
+    if (riskErr) {
+      console.error(`[upsertContractMetadata] Error inserting risk: ${finding.title}`, riskErr);
+      // Continue with next risk instead of throwing
+    }
+  }
+  
+  console.log(`[upsertContractMetadata] ✓ ${risks.findings?.length || 0} risks inserted`);
+  
+  // 3. Insert contract_obligations
+  for (const obligation of (risks.obligations || [])) {
+    const { error: obligationErr } = await supabase
+      .from('contract_obligations')
+      .insert({
+        contract_id: contractId,
+        contract_code: contractCode,
+        name: obligation.name,
+        type: obligation.type,
+        periodicity: obligation.periodicity,
+        next_due_date: obligation.next_due_date,
+        notes: obligation.related_clause_ref ? `Cláusula: ${obligation.related_clause_ref}` : null
+      });
+    
+    if (obligationErr) {
+      console.error(`[upsertContractMetadata] Error inserting obligation: ${obligation.name}`, obligationErr);
+      // Continue with next obligation
+    }
+  }
+  
+  console.log(`[upsertContractMetadata] ✓ ${risks.obligations?.length || 0} obligations inserted`);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -1326,6 +1522,30 @@ serve(async (req) => {
           .eq("id", job.id);
         
         console.log(`[process-document] Contract created: ${contract.id}`);
+        
+        // FASE 3: Extract and upsert contract metadata (summary + risks) for new contract
+        try {
+          console.log("[process-document] Extracting contract metadata (summary + risks)...");
+          const { summary, risks } = await extractContractMetadata(
+            parsedJson,
+            extractedCode,
+            document_type
+          );
+          
+          await upsertContractMetadata(
+            supabase,
+            contract.id,
+            extractedCode,
+            summary,
+            risks
+          );
+          
+          console.log("[process-document] ✅ Contract metadata extracted and upserted");
+        } catch (metaErr) {
+          console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
+          // Don't fail the whole job, just log warning
+          console.warn("[process-document] Continuing without metadata extraction");
+        }
       }
       
       // FASE 5: Validar que el contrato tenga datos completos
