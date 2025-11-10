@@ -877,6 +877,63 @@ CRITICAL VALIDATION:
 Return ONLY the JSON object.`
 };
 
+// Helper: OpenAI call with retry logic and exponential backoff
+async function callOpenAIWithRetry(
+  payload: any,
+  apiKey: string,
+  maxRetries: number = 3
+): Promise<any> {
+  const url = "https://api.openai.com/v1/chat/completions";
+  let attempt = 0;
+  let lastError: any;
+  
+  while (attempt < maxRetries) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        return data;
+      }
+      
+      // Si es rate limit (429), hacer retry con backoff
+      if (res.status === 429) {
+        const errorData = await res.json();
+        const retryAfter = errorData.error?.message?.match(/try again in ([\d.]+)s/)?.[1];
+        const waitTime = retryAfter ? parseFloat(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
+        
+        console.warn(`[OpenAI] Rate limit hit, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, waitTime + 200)); // +200ms buffer
+        attempt++;
+        continue;
+      }
+      
+      // Otro error, lanzar excepción
+      const err = await res.text();
+      throw new Error(`OpenAI error (${res.status}): ${err}`);
+      
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxRetries - 1) break;
+      
+      // Exponential backoff: 1s, 2s, 4s
+      const waitTime = Math.pow(2, attempt) * 1000;
+      console.warn(`[OpenAI] Attempt ${attempt + 1} failed, retrying in ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      attempt++;
+    }
+  }
+  
+  throw new Error(`OpenAI call failed after ${maxRetries} attempts: ${lastError?.message || lastError}`);
+}
+
 // Helper: normalize task numbers intelligently
 function normalizeTaskNumber(taskNumber: string, taskName: string): string {
   // Caso especial: Tarea 1.2 (preserve exactamente)
@@ -937,17 +994,27 @@ async function extractContractMetadata(
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
   
-  // Extract summary
+  // FASE 3: Optimizar contenido enviado - extraer solo texto relevante (primeras 8000 palabras)
+  const relevantContent = {
+    text: parsedJson.text?.split(' ').slice(0, 8000).join(' ') || '',
+    pages: parsedJson.pages?.length || 0,
+    has_tables: !!parsedJson.tables
+  };
+  
+  console.log(`[extractContractMetadata] Optimized content: ${relevantContent.text.length} chars, ${relevantContent.pages} pages`);
+  
+  // Extract summary with gpt-4o-mini
   const summaryPrompt = EXTRACTION_PROMPTS.contract_summary;
   const summaryPayload = {
-    model: "gpt-4o",
+    model: "gpt-4o-mini",  // FASE 1: Cambio a gpt-4o-mini (10x más límite, 95% más barato)
     temperature: 0,
+    max_tokens: 4000,  // FASE 3: Limitar tokens de salida
     messages: [
       { role: "system", content: summaryPrompt },
       { 
         role: "user", 
         content: JSON.stringify({ 
-          parsed_json: parsedJson, 
+          content: relevantContent,  // FASE 3: Contenido optimizado
           contract_code: contractCode, 
           doc_type: docType 
         }) 
@@ -955,60 +1022,55 @@ async function extractContractMetadata(
     ]
   };
   
-  const summaryRes = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${openaiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(summaryPayload)
-  });
-  
-  if (!summaryRes.ok) {
-    const err = await summaryRes.text();
-    throw new Error(`OpenAI summary error: ${err}`);
-  }
-  
-  const summaryData = await summaryRes.json();
+  console.log("[extractContractMetadata] Calling OpenAI for summary extraction (gpt-4o-mini)...");
+  const summaryData = await callOpenAIWithRetry(summaryPayload, openaiKey);  // FASE 2: Usar retry logic
   const summaryJson = JSON.parse(summaryData.choices[0].message.content);
-  console.log("[extractContractMetadata] Summary extracted successfully");
   
-  // Extract risks
+  // FASE 5: Logging mejorado con tokens
+  const summaryTokens = summaryData.usage?.total_tokens || 0;
+  console.log(`[extractContractMetadata] ✅ Summary extracted - Tokens used: ${summaryTokens} (prompt: ${summaryData.usage?.prompt_tokens}, completion: ${summaryData.usage?.completion_tokens})`);
+  
+  // FASE 4: Delay de 500ms antes de la siguiente llamada
+  console.log("[extractContractMetadata] Waiting 500ms before risks extraction...");
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // FASE 3: Optimizar contenido para riesgos - extraer solo cláusulas relevantes
+  const riskRelevantSections = parsedJson.text?.match(
+    /(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|CLÁUSULA)[^\n]+(?:\n[^\n]+){0,25}/gi
+  ) || [];
+  
+  console.log(`[extractContractMetadata] Extracted ${riskRelevantSections.length} relevant clauses for risks`);
+  
+  // Extract risks with gpt-4o-mini
   const risksPrompt = EXTRACTION_PROMPTS.contract_risks;
   const risksPayload = {
-    model: "gpt-4o",
+    model: "gpt-4o-mini",  // FASE 1: Cambio a gpt-4o-mini
     temperature: 0,
+    max_tokens: 3000,  // FASE 3: Limitar tokens de salida
     messages: [
       { role: "system", content: risksPrompt },
       { 
         role: "user", 
         content: JSON.stringify({ 
-          parsed_json: parsedJson, 
+          clauses: riskRelevantSections.slice(0, 20),  // FASE 3: Máximo 20 cláusulas
           contract_code: contractCode, 
           doc_type: docType,
+          summary: summaryJson,  // Incluir summary ya extraído para contexto
           version_tag: summaryJson.version_tag || null
         }) 
       }
     ]
   };
   
-  const risksRes = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${openaiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(risksPayload)
-  });
-  
-  if (!risksRes.ok) {
-    const err = await risksRes.text();
-    throw new Error(`OpenAI risks error: ${err}`);
-  }
-  
-  const risksData = await risksRes.json();
+  console.log("[extractContractMetadata] Calling OpenAI for risks extraction (gpt-4o-mini)...");
+  const risksData = await callOpenAIWithRetry(risksPayload, openaiKey);  // FASE 2: Usar retry logic
   const risksJson = JSON.parse(risksData.choices[0].message.content);
-  console.log("[extractContractMetadata] Risks extracted successfully");
+  
+  // FASE 5: Logging mejorado con tokens
+  const risksTokens = risksData.usage?.total_tokens || 0;
+  const totalTokens = summaryTokens + risksTokens;
+  console.log(`[extractContractMetadata] ✅ Risks extracted - Tokens used: ${risksTokens} (prompt: ${risksData.usage?.prompt_tokens}, completion: ${risksData.usage?.completion_tokens})`);
+  console.log(`[extractContractMetadata] 📊 Total tokens consumed for metadata extraction: ${totalTokens}`);
   
   return { summary: summaryJson, risks: risksJson };
 }
