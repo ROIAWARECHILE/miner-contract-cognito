@@ -25,7 +25,7 @@ import { ContractSummaryCard } from "@/components/ContractSummaryCard";
 import { ContractRisksTable } from "@/components/ContractRisksTable";
 import { ContractObligationsTable } from "@/components/ContractObligationsTable";
 import { ExtractionQualityDashboard } from "@/components/ExtractionQualityDashboard";
-import { ContractExecSummary, ContractExecutiveSummary } from "./ContractExecutiveSummary";
+import ContractExecutiveSummary, { ContractExecSummary } from "./ContractExecutiveSummary";
 import { ProcessingMonitor } from "./ProcessingMonitor";
 
 interface ContractDetailProps {
