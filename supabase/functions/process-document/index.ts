@@ -1150,53 +1150,101 @@ serve(async (req) => {
     const requestBody = await req.json();
     console.log("[process-document] Request body:", JSON.stringify(requestBody, null, 2));
 
-    const { contract_id, contract_code, storage_path, document_type, edp_number } = requestBody;
+    const { contract_id, contract_code, storage_path, document_type, edp_number, reprocessing, job_id } = requestBody;
 
     if (!storage_path) {
       throw new Error("storage_path is required");
     }
 
     // FASE 2: Check for duplicate jobs (últimos 15 minutos)
-    const { data: existingJobs } = await supabase
-      .from('document_processing_jobs')
-      .select('id, status')
-      .eq('storage_path', storage_path)
-      .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
-      .in('status', ['queued', 'processing']);
+    // Skip check if reprocessing flag is true
+    if (!reprocessing) {
+      const { data: existingJobs } = await supabase
+        .from('document_processing_jobs')
+        .select('id, status')
+        .eq('storage_path', storage_path)
+        .gte('created_at', new Date(Date.now() - 15 * 60 * 1000).toISOString())
+        .in('status', ['queued', 'processing']);
 
-    if (existingJobs && existingJobs.length > 0) {
-      console.log(`[process-document] ⚠️ Job already exists for ${storage_path}, skipping`);
-      return new Response(
-        JSON.stringify({ 
-          ok: false, 
-          error: 'Job already in progress',
-          existing_job_id: existingJobs[0].id 
-        }),
-        { 
-          headers: { ...corsHeaders, "Content-Type": "application/json" }, 
-          status: 409 
-        }
-      );
+      if (existingJobs && existingJobs.length > 0) {
+        console.log(`[process-document] ⚠️ Job already exists for ${storage_path}, skipping`);
+        return new Response(
+          JSON.stringify({ 
+            ok: false, 
+            error: 'Job already in progress',
+            existing_job_id: existingJobs[0].id 
+          }),
+          { 
+            headers: { ...corsHeaders, "Content-Type": "application/json" }, 
+            status: 409 
+          }
+        );
+      }
+    } else {
+      console.log(`[process-document] 🔄 Reprocessing mode - cancelling existing jobs for ${storage_path}`);
+      
+      // Cancel any existing jobs for this storage_path
+      await supabase
+        .from('document_processing_jobs')
+        .update({ status: 'cancelled', error: 'Superseded by reprocessing request' })
+        .eq('storage_path', storage_path)
+        .in('status', ['queued', 'processing']);
     }
 
-    // Step 1: Create a processing job
-    const { data: job, error: jobError } = await supabase
-      .from("document_processing_jobs")
-      .insert({
-        storage_path,
-        status: "processing",
-        contract_id: contract_id || null,
-        document_type: document_type || "unknown"
-      })
-      .select()
-      .single();
 
-    if (jobError || !job) {
-      console.error("[process-document] Failed to create job:", jobError);
-      throw new Error(`Failed to create processing job: ${jobError?.message}`);
+    // Step 1: Get or create a processing job
+    let job;
+    if (reprocessing && job_id) {
+      // Use existing job from reprocess-contract
+      console.log(`[process-document] 🔄 Using existing job: ${job_id}`);
+      
+      const { data: existingJob, error: fetchError } = await supabase
+        .from("document_processing_jobs")
+        .select()
+        .eq('id', job_id)
+        .single();
+      
+      if (fetchError || !existingJob) {
+        console.error("[process-document] Failed to fetch job:", fetchError);
+        throw new Error(`Failed to fetch job ${job_id}: ${fetchError?.message}`);
+      }
+      
+      // Update status to processing
+      const { data: updatedJob, error: updateError } = await supabase
+        .from("document_processing_jobs")
+        .update({ status: "processing" })
+        .eq('id', job_id)
+        .select()
+        .single();
+      
+      if (updateError) {
+        console.error("[process-document] Failed to update job:", updateError);
+        throw new Error(`Failed to update job: ${updateError?.message}`);
+      }
+      
+      job = updatedJob;
+    } else {
+      // Create new job
+      const { data: newJob, error: jobError } = await supabase
+        .from("document_processing_jobs")
+        .insert({
+          storage_path,
+          status: "processing",
+          contract_id: contract_id || null,
+          document_type: document_type || "unknown"
+        })
+        .select()
+        .single();
+
+      if (jobError || !newJob) {
+        console.error("[process-document] Failed to create job:", jobError);
+        throw new Error(`Failed to create processing job: ${jobError?.message}`);
+      }
+      
+      job = newJob;
+      console.log(`[process-document] Created job: ${job.id} for ${storage_path}`);
     }
 
-    console.log(`[process-document] Created job: ${job.id} for ${storage_path}`);
 
     // Step 2: Get contract if contract_id provided
     let contract = null;
