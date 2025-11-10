@@ -194,111 +194,278 @@ VALIDATION (non-blocking):
 
 Return ONLY the JSON object (no markdown, no \`\`\`json blocks, no explanatory text).`;
 
-// CONTRACT SUMMARY extraction prompt (FASE 2)
-const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — the CONTRACT SUMMARY extractor for mining service agreements.
-Goal: read LlamaParse JSON (contract or addendum) and return STRICT JSON that powers an executive summary ("Ficha contractual") without modifying other extractors.
+// CONTRACT SUMMARY extraction prompt - OPTIMIZED for Chilean mining contracts
+const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT SUMMARY extractor for Chilean mining service agreements.
 
-INPUTS
-- parsed_json: LlamaParse JSON (text + tables).
-- contract_code: string.
-- doc_type: "contract" | "addendum".
+DOCUMENT STRUCTURE (Chilean contracts):
+- Numbered clauses: "PRIMERO:", "SEGUNDO:", "TERCERO:", "CUARTO:", "QUINTO:", etc.
+- Standard sections:
+  * COMPARECENCIA: parties (client, contractor)
+  * PRIMERO: contract object/scope
+  * SEGUNDO: deliverables and budget
+  * TERCERO: validity period
+  * CUARTO: execution timeline
+  * QUINTO: price and payment terms
+  * SEXTO: legal compliance (Ley 20.393, Ley 21.643, etc.)
+  * SÉPTIMO-DÉCIMO: various obligations, warranties, special clauses
+- Tables: "Partidas" table with columns: ITEM, Partida, Unidad, Precio Total (UF)
 
-OUTPUT — JSON ONLY (no prose)
+CRITICAL PATTERNS:
+
+VIGENCIA (CLAUSE TERCERO):
+- Pattern: "El plazo de vigencia del Contrato se extenderá entre el DD-MM-YYYY y el DD-MM-YYYY"
+- Complex dates: "entre el 28-07-2025 y el 29-12-2025 más 20 días corridos"
+  → validity_start: 2025-07-28, validity_end: calculate 2025-12-29 + 20 days = 2026-01-18
+- If "más X días" appears, ADD those days to end date and note in meta
+
+PRESUPUESTO (CLAUSE SEGUNDO or QUINTO):
+- Pattern: "El precio de este Contrato es de X UF" or "Presupuesto Total: X UF"
+- Format: "4.501 UF" → 4501 (remove dots, no decimals in UF)
+- Validate against PARTIDAS table sum
+
+REAJUSTABILIDAD (CLAUSE QUINTO):
+- Pattern: "El contrato no contempla reajustes" → "Sin reajuste"
+- Pattern: "reajuste según IPC" → "IPC"
+- Pattern: "reajuste según UF" → "UF indexada"
+- Pattern: "reajuste según dólar" → "Dólar"
+
+PARTES (COMPARECENCIA):
+- Client pattern: "de una parte, [NAME], RUT [RUT], representada por [PERSON]"
+- Contractor pattern: "de la otra parte, [NAME], RUT [RUT], representado por [PERSON]"
+- Extract full names: "ANDES IRON SpA", "ITASCA CHILE SPA"
+- Extract RUTs: "76.097.570-4", "96.684.920-7"
+
+PARTIDAS TABLE (usually in CLAUSE SEGUNDO):
+- Structure: | ITEM | Partida | Unidad | Cantidad | ... | Precio Total (UF) |
+- Example: "1.1 | Recopilación y análisis de información | GL | ... | 507"
+- Each row is a milestone
+- Task numbers: preserve "1.1", "1.2", etc. (never "11", "12")
+- Sum amounts and validate against budget_total
+
+COMPLIANCE (CLAUSE SEXTO typically):
+- "Ley N°20.393" → {type: "safety", name: "Modelo de Prevención de Delitos", periodicity: "continuo"}
+- "Ley N°21.643" or "Ley Karin" → {type: "safety", name: "Protocolo Ley Karin", periodicity: "continuo"}
+- "Plan de SSO" → {type: "plan", name: "Plan de Seguridad y Salud Ocupacional", periodicity: "inicial", deadline_rule: "Antes del inicio"}
+- "Plan de Calidad" → {type: "plan", name: "Plan de Aseguramiento de Calidad", periodicity: "inicial"}
+
+OUTPUT SCHEMA:
 {
   "contract_code": "<string>",
-  "version_tag": "<string|null>",
+  "version_tag": "<R0|R1|null>",
   "date_issued": "<YYYY-MM-DD|null>",
   "validity_start": "<YYYY-MM-DD|null>",
   "validity_end": "<YYYY-MM-DD|null>",
-  "currency": "UF|CLP|USD|null",
-  "budget_total": <number|null>,
-  "reajustabilidad": "<string|null>",
+  "currency": "UF|CLP|USD",
+  "budget_total": <number>,
+  "reajustabilidad": "<string>",
   "parties": {
-    "client": {"name":"<string|null>","rut":"<string|null>"},
-    "contractor": {"name":"<string|null>","rut":"<string|null>"},
-    "signatories": [{"name":"<string>","role":"<string|null>"}]
+    "client": {"name":"<string>","rut":"<string|null>"},
+    "contractor": {"name":"<string>","rut":"<string|null>"},
+    "signatories": [{"name":"<string>","role":"<string>"}]
   },
   "milestones": [
-    { "name":"<string>", "due":"<YYYY-MM-DD|null>", "notes":"<string|null>" }
+    { "name":"<string>", "budget_uf": <number>, "notes":"<from partidas table>" }
   ],
   "compliance_requirements": [
-    { "type":"plan|report|insurance|guarantee|safety|quality", "name":"<string>", "periodicity":"<string|null>", "deadline_rule":"<string|null>" }
+    { "type":"plan|report|insurance|guarantee|safety|quality", "name":"<string>", "periodicity":"<continuo|inicial|mensual|trimestral|null>", "deadline_rule":"<string|null>" }
   ],
-  "summary_md": "<max 180 words concise Spanish summary in markdown>",
+  "summary_md": "<max 180 words executive summary in Spanish>",
   "provenance": [
-    { "clause_ref":"<string|null>", "page": <int|null>, "text_span":"<string|null>" }
+    { "clause_ref":"<PRIMERO|SEGUNDO|etc>", "page": <int>, "text_span":"<excerpt max 200 chars>" }
   ],
   "meta": {
-    "missing": ["<field>", "..."],
-    "notes": ["<string>", "..."]
+    "date_calculations": ["<if complex dates, show math>"],
+    "budget_validation": "<sum of milestones vs budget_total>",
+    "missing": ["<field>"],
+    "warnings": ["<string>"],
+    "review_required": <boolean>
   }
 }
 
-RULES
-- Use dates in ISO (YYYY-MM-DD). If only month/year exist, set day = 01 and note it in meta.
-- Normalize currency amounts (e.g., "4.501 UF" → 4501).
-- Prefer explicit clauses for validity, reajustabilidad, guarantees/insurances, and reporting obligations.
-- Do NOT hallucinate: if unsure, return null and record the field in meta.missing.
-- Return only the JSON object.
+VALIDATION:
+1. If validity_end calculation required (e.g., "+ 20 días"), show in meta.date_calculations
+2. Sum milestones[].budget_uf and compare with budget_total. If diff >1%, warn in meta
+3. If parties.client or parties.contractor missing → meta.review_required = true
+4. If budget_total missing or 0 → meta.review_required = true
 
-CRITICAL: This extractor ONLY processes contract or addendum documents. Do NOT apply to EDP, SDI, memorandum, or plans.`;
+Return ONLY valid JSON (no markdown, no prose).`;
 
-// CONTRACT RISKS extraction prompt (FASE 2)
-const CONTRACT_RISKS_EXTRACTION_PROMPT = `You are ContractOS — the CONTRACT RISKS & OBLIGATIONS extractor.
-Goal: from a contract or addendum (LlamaParse JSON), return STRICT JSON listing actionable risks and obligations with provenance. Do not affect other extractors.
+// CONTRACT RISKS extraction prompt - OPTIMIZED for Chilean mining contracts
+const CONTRACT_RISKS_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT RISKS & OBLIGATIONS extractor for Chilean mining contracts.
 
-INPUTS
-- parsed_json: LlamaParse JSON (text + tables).
-- contract_code: string.
-- doc_type: "contract" | "addendum".
-- version_tag: e.g., "R0", "R1" (optional).
+RISK PATTERNS (Chilean contracts):
 
-OUTPUT — JSON ONLY (no prose)
+PATRÓN 1: TÉRMINO ANTICIPADO (Clause DÉCIMO typically)
+- Keywords: "poner término anticipado", "sin expresión de causa", "sola opción y conveniencia"
+- Example: "AI tendrá el derecho de poner término anticipado al Contrato sin expresión de causa a su sola opción y conveniencia"
+- Output:
+  {
+    "risk_type": "termination",
+    "title": "Término anticipado sin causa por el cliente",
+    "description": "El cliente puede terminar el contrato en cualquier momento sin necesidad de justificación ni indemnización. Riesgo financiero alto para el contratista.",
+    "severity": "alta",
+    "probability": "media",
+    "obligation": false,
+    "clause_ref": "DÉCIMO",
+    "source_excerpt": "tendrá el derecho de poner término anticipado sin expresión de causa"
+  }
+
+PATRÓN 2: EXCESO SOBRE PRESUPUESTO (Clause QUINTO typically)
+- Keywords: "exceso sobre el valor máximo", "exclusiva responsabilidad", "total costo"
+- Example: "Cualquier exceso sobre el valor máximo no garantizado será de su exclusiva responsabilidad y a su total costo"
+- Output:
+  {
+    "risk_type": "penalty",
+    "title": "Responsabilidad financiera por excesos de presupuesto",
+    "description": "Cualquier gasto que exceda el presupuesto acordado será asumido completamente por el contratista sin posibilidad de cobro adicional.",
+    "severity": "media",
+    "probability": "media",
+    "obligation": false,
+    "clause_ref": "QUINTO"
+  }
+
+PATRÓN 3: LEY 20.393 - PREVENCIÓN DE DELITOS (Clause SEXTO typically)
+- Keywords: "Ley N°20.393", "Modelo de Prevención de Delitos", "responsabilidad penal"
+- Output:
+  {
+    "risk_type": "safety",
+    "title": "Cumplimiento Ley 20.393 - Modelo de Prevención de Delitos",
+    "description": "Obligación legal de mantener implementado y actualizado un Modelo de Prevención de Delitos según Ley 20.393. Incumplimiento puede resultar en responsabilidad penal.",
+    "severity": "alta",
+    "probability": null,
+    "obligation": true,
+    "periodicity": "continuo",
+    "clause_ref": "SEXTO"
+  }
+
+PATRÓN 4: LEY 21.643 - LEY KARIN (Clause SEXTO typically)
+- Keywords: "Ley N°21.643", "Ley Karin", "acoso sexual", "violencia", "protocolos"
+- Output:
+  {
+    "risk_type": "safety",
+    "title": "Cumplimiento Ley 21.643 (Ley Karin) - Protocolo contra acoso",
+    "description": "Obligación de implementar protocolos de prevención contra acoso sexual, laboral y violencia en el trabajo según Ley Karin.",
+    "severity": "alta",
+    "probability": null,
+    "obligation": true,
+    "periodicity": "continuo",
+    "clause_ref": "SEXTO"
+  }
+
+PATRÓN 5: REPORTE DE DENUNCIAS (Clause SEXTO typically)
+- Keywords: "mantener informado", "denuncia", "investigación", "cualquier proceso"
+- Example: "mantener informado a AI a demanda sobre cualquier denuncia que se encuentre bajo investigación"
+- Output:
+  {
+    "risk_type": "report",
+    "title": "Obligación de reporte de denuncias bajo investigación",
+    "description": "Deber de informar al cliente inmediatamente y a demanda sobre cualquier denuncia o proceso de investigación relacionado con las leyes 20.393 o 21.643.",
+    "severity": "media",
+    "probability": null,
+    "obligation": true,
+    "periodicity": "a demanda",
+    "clause_ref": "SEXTO"
+  }
+
+PATRÓN 6: IMPUESTOS A CARGO DEL CONTRATISTA (Clause OCTAVO typically)
+- Keywords: "impuestos", "excepto el IVA", "exclusivo cargo del CONTRATISTA"
+- Output:
+  {
+    "risk_type": "other",
+    "title": "Responsabilidad tributaria - Todos los impuestos excepto IVA",
+    "description": "Todos los impuestos generados por la prestación de servicios son de cargo exclusivo del contratista, salvo el IVA que es de cargo del cliente.",
+    "severity": "baja",
+    "probability": null,
+    "obligation": true,
+    "clause_ref": "OCTAVO"
+  }
+
+PATRÓN 7: PLANES OBLIGATORIOS (Clause SEXTO typically)
+- Keywords: "Plan de SSO", "Plan de Calidad", "Plan de Prevención"
+- Output OBLIGATIONS:
+  {
+    "name": "Presentar Plan de SSO",
+    "type": "plan",
+    "periodicity": "inicial",
+    "next_due_date": "<contract start_date or null>",
+    "related_clause_ref": "SEXTO"
+  }
+
+PATRÓN 8: REVISIÓN POR EXPERTOS (Clause SEXTO)
+- Keywords: "revisión por terceros expertos", "auditoría externa", "verificación independiente"
+- Output:
+  {
+    "risk_type": "quality",
+    "title": "Auditoría externa posible para verificación de cumplimiento",
+    "description": "El cliente se reserva el derecho de solicitar revisión por terceros expertos independientes para verificar el cumplimiento de obligaciones legales y contractuales.",
+    "severity": "media",
+    "probability": "baja",
+    "obligation": false,
+    "clause_ref": "SEXTO"
+  }
+
+RIESGOS IMPLÍCITOS (detect from context):
+- If "plazo de ejecución" defined but NO explicit penalties for delays:
+  → Finding: "Sin multas explícitas por retraso, pero término anticipado es posible" (severity: media)
+- If budget is "valor máximo no garantizado" (non-guaranteed maximum):
+  → Finding already covered by PATRÓN 2
+
+OUTPUT SCHEMA:
 {
   "contract_code": "<string>",
   "version_tag": "<string|null>",
   "findings": [
     {
       "risk_type": "penalty|insurance|guarantee|report|deadline|safety|quality|termination|confidentiality|other",
-      "title": "<short actionable title in Spanish>",
-      "description": "<2-4 sentences, precise and verifiable>",
+      "title": "<actionable title 5-10 words Spanish>",
+      "description": "<2-4 sentences, concrete impact>",
       "severity": "alta|media|baja",
       "probability": "alta|media|baja|null",
       "obligation": true|false,
       "deadline": "<YYYY-MM-DD|null>",
-      "periodicity": "<string|null>",
-      "clause_ref": "<string|null>",
+      "periodicity": "<continuo|inicial|mensual|a demanda|null>",
+      "clause_ref": "<PRIMERO|SEGUNDO|etc>",
       "page": <int|null>,
-      "source_doc_type": "<contract|addendum>",
+      "source_doc_type": "contract|addendum",
       "source_version": "<string|null>",
-      "source_excerpt": "<short exact excerpt or null>"
+      "source_excerpt": "<excerpt max 240 chars>"
     }
   ],
   "obligations": [
     {
       "name": "<string>",
       "type": "plan|report|insurance|guarantee|meeting|other",
-      "periodicity": "<string|null>",
+      "periodicity": "<continuo|inicial|mensual|trimestral|a demanda|null>",
       "next_due_date": "<YYYY-MM-DD|null>",
       "related_clause_ref": "<string|null>",
       "page": <int|null>
     }
   ],
   "meta": {
-    "missing": ["<field>", "..."],
-    "notes": ["<string>", "..."]
+    "patterns_detected": ["<PATRÓN X>"],
+    "implicit_risks": ["<string>"],
+    "missing": ["<field>"],
+    "review_required": <boolean>
   }
 }
 
-RULES
-- Extract penalties (multas), guarantees (garantías), insurances (seguros), reporting obligations (reportes/planes), explicit deadlines, termination clauses, confidentiality, safety/quality compliance.
-- If dates depend on relative rules (e.g., "5 días hábiles desde recepción"), do NOT resolve calendar math here — keep rule text in description and leave deadline null unless an absolute date is stated in the document.
-- Keep titles short and actionable; severity is your best judgment based on impact described.
-- Provide provenance: clause_ref and/or page plus a short excerpt (no more than 240 chars).
-- No hallucinations: if unsure, omit or mark fields null and add to meta.missing.
-- Return only the JSON object.
+EXTRACTION PRIORITY:
+1. Termination clauses (highest severity)
+2. Legal compliance (Ley 20.393, Ley 21.643)
+3. Financial risks (budget overruns, penalties)
+4. Reporting obligations
+5. Plans and deliverables (SSO, Quality)
+6. Insurance/guarantees
+7. Tax responsibilities
+8. Other obligations
 
-CRITICAL: This extractor ONLY processes contract or addendum documents. Do NOT apply to EDP, SDI, memorandum, or plans.`;
+VALIDATION:
+- If NO termination clause found → meta.review_required = true, meta.missing = ["termination_clause"]
+- If NO legal compliance (20.393 or 21.643) found → warn in meta.notes
+- findings.length should be >= 4 for typical Chilean mining contracts
+- obligations.length should be >= 2 (at minimum SSO plan + legal compliance)
+
+Return ONLY valid JSON (no markdown, no prose).`;
 
 // Document type specific prompts
 const EXTRACTION_PROMPTS: Record<string, string> = {
