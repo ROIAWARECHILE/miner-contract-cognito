@@ -1,4 +1,4 @@
-import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2, Bot } from "lucide-react";
+import { ArrowLeft, FileText, TrendingUp, Calendar, Users, Download, RefreshCw, Trash2, Bot, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,9 @@ import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
+import { ContractSummaryCard } from "@/components/ContractSummaryCard";
+import { ContractRisksTable } from "@/components/ContractRisksTable";
+import { ContractObligationsTable } from "@/components/ContractObligationsTable";
 
 interface ContractDetailProps {
   contractId: string;
@@ -390,6 +393,14 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <TrendingUp className="w-4 h-4" />
             Progreso
           </TabsTrigger>
+          <TabsTrigger value="ficha" className="gap-2">
+            <FileText className="w-4 h-4" />
+            Ficha
+          </TabsTrigger>
+          <TabsTrigger value="risks" className="gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            Riesgos
+          </TabsTrigger>
           <TabsTrigger value="documents" className="gap-2">
             <FileText className="w-4 h-4" />
             Documentos
@@ -407,6 +418,17 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             Cronograma
           </TabsTrigger>
         </TabsList>
+
+        {/* FASE 4: Nueva pestaña Ficha */}
+        <TabsContent value="ficha" className="space-y-4">
+          <ContractSummaryCard contractCode={contractCode} />
+        </TabsContent>
+
+        {/* FASE 4: Nueva pestaña Riesgos */}
+        <TabsContent value="risks" className="space-y-4">
+          <ContractRisksTable contractCode={contractCode} />
+          <ContractObligationsTable contractCode={contractCode} />
+        </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
           {/* S-Curve */}

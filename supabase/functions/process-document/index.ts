@@ -194,10 +194,118 @@ VALIDATION (non-blocking):
 
 Return ONLY the JSON object (no markdown, no \`\`\`json blocks, no explanatory text).`;
 
+// CONTRACT SUMMARY extraction prompt (FASE 2)
+const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — the CONTRACT SUMMARY extractor for mining service agreements.
+Goal: read LlamaParse JSON (contract or addendum) and return STRICT JSON that powers an executive summary ("Ficha contractual") without modifying other extractors.
+
+INPUTS
+- parsed_json: LlamaParse JSON (text + tables).
+- contract_code: string.
+- doc_type: "contract" | "addendum".
+
+OUTPUT — JSON ONLY (no prose)
+{
+  "contract_code": "<string>",
+  "version_tag": "<string|null>",
+  "date_issued": "<YYYY-MM-DD|null>",
+  "validity_start": "<YYYY-MM-DD|null>",
+  "validity_end": "<YYYY-MM-DD|null>",
+  "currency": "UF|CLP|USD|null",
+  "budget_total": <number|null>,
+  "reajustabilidad": "<string|null>",
+  "parties": {
+    "client": {"name":"<string|null>","rut":"<string|null>"},
+    "contractor": {"name":"<string|null>","rut":"<string|null>"},
+    "signatories": [{"name":"<string>","role":"<string|null>"}]
+  },
+  "milestones": [
+    { "name":"<string>", "due":"<YYYY-MM-DD|null>", "notes":"<string|null>" }
+  ],
+  "compliance_requirements": [
+    { "type":"plan|report|insurance|guarantee|safety|quality", "name":"<string>", "periodicity":"<string|null>", "deadline_rule":"<string|null>" }
+  ],
+  "summary_md": "<max 180 words concise Spanish summary in markdown>",
+  "provenance": [
+    { "clause_ref":"<string|null>", "page": <int|null>, "text_span":"<string|null>" }
+  ],
+  "meta": {
+    "missing": ["<field>", "..."],
+    "notes": ["<string>", "..."]
+  }
+}
+
+RULES
+- Use dates in ISO (YYYY-MM-DD). If only month/year exist, set day = 01 and note it in meta.
+- Normalize currency amounts (e.g., "4.501 UF" → 4501).
+- Prefer explicit clauses for validity, reajustabilidad, guarantees/insurances, and reporting obligations.
+- Do NOT hallucinate: if unsure, return null and record the field in meta.missing.
+- Return only the JSON object.
+
+CRITICAL: This extractor ONLY processes contract or addendum documents. Do NOT apply to EDP, SDI, memorandum, or plans.`;
+
+// CONTRACT RISKS extraction prompt (FASE 2)
+const CONTRACT_RISKS_EXTRACTION_PROMPT = `You are ContractOS — the CONTRACT RISKS & OBLIGATIONS extractor.
+Goal: from a contract or addendum (LlamaParse JSON), return STRICT JSON listing actionable risks and obligations with provenance. Do not affect other extractors.
+
+INPUTS
+- parsed_json: LlamaParse JSON (text + tables).
+- contract_code: string.
+- doc_type: "contract" | "addendum".
+- version_tag: e.g., "R0", "R1" (optional).
+
+OUTPUT — JSON ONLY (no prose)
+{
+  "contract_code": "<string>",
+  "version_tag": "<string|null>",
+  "findings": [
+    {
+      "risk_type": "penalty|insurance|guarantee|report|deadline|safety|quality|termination|confidentiality|other",
+      "title": "<short actionable title in Spanish>",
+      "description": "<2-4 sentences, precise and verifiable>",
+      "severity": "alta|media|baja",
+      "probability": "alta|media|baja|null",
+      "obligation": true|false,
+      "deadline": "<YYYY-MM-DD|null>",
+      "periodicity": "<string|null>",
+      "clause_ref": "<string|null>",
+      "page": <int|null>,
+      "source_doc_type": "<contract|addendum>",
+      "source_version": "<string|null>",
+      "source_excerpt": "<short exact excerpt or null>"
+    }
+  ],
+  "obligations": [
+    {
+      "name": "<string>",
+      "type": "plan|report|insurance|guarantee|meeting|other",
+      "periodicity": "<string|null>",
+      "next_due_date": "<YYYY-MM-DD|null>",
+      "related_clause_ref": "<string|null>",
+      "page": <int|null>
+    }
+  ],
+  "meta": {
+    "missing": ["<field>", "..."],
+    "notes": ["<string>", "..."]
+  }
+}
+
+RULES
+- Extract penalties (multas), guarantees (garantías), insurances (seguros), reporting obligations (reportes/planes), explicit deadlines, termination clauses, confidentiality, safety/quality compliance.
+- If dates depend on relative rules (e.g., "5 días hábiles desde recepción"), do NOT resolve calendar math here — keep rule text in description and leave deadline null unless an absolute date is stated in the document.
+- Keep titles short and actionable; severity is your best judgment based on impact described.
+- Provide provenance: clause_ref and/or page plus a short excerpt (no more than 240 chars).
+- No hallucinations: if unsure, omit or mark fields null and add to meta.missing.
+- Return only the JSON object.
+
+CRITICAL: This extractor ONLY processes contract or addendum documents. Do NOT apply to EDP, SDI, memorandum, or plans.`;
+
 // Document type specific prompts
 const EXTRACTION_PROMPTS: Record<string, string> = {
   memorandum: MEMORANDUM_EXTRACTION_PROMPT,
   edp: EDP_EXTRACTION_PROMPT,
+  contract_summary: CONTRACT_SUMMARY_EXTRACTION_PROMPT,
+  contract_risks: CONTRACT_RISKS_EXTRACTION_PROMPT,
   
   contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
 
@@ -1164,6 +1272,30 @@ serve(async (req) => {
           .from("document_processing_jobs")
           .update({ contract_id: contract.id })
           .eq("id", job.id);
+        
+        // FASE 3: Extract and upsert contract metadata (summary + risks)
+        try {
+          console.log("[process-document] Extracting contract metadata (summary + risks)...");
+          const { summary, risks } = await extractContractMetadata(
+            parsedJson,
+            extractedCode,
+            document_type
+          );
+          
+          await upsertContractMetadata(
+            supabase,
+            contract.id,
+            extractedCode,
+            summary,
+            risks
+          );
+          
+          console.log("[process-document] ✅ Contract metadata extracted and upserted");
+        } catch (metaErr) {
+          console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
+          // Don't fail the whole job, just log warning
+          console.warn("[process-document] Continuing without metadata extraction");
+        }
       } else {
         // Contract doesn't exist, create it
         console.log(`[process-document] Creating new contract: ${extractedCode}`);

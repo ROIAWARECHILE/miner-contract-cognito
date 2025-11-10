@@ -610,6 +610,255 @@ export type Database = {
           },
         ]
       }
+      contract_obligations: {
+        Row: {
+          contract_code: string
+          contract_id: string
+          created_at: string | null
+          id: string
+          last_submission: string | null
+          name: string
+          next_due_date: string | null
+          notes: string | null
+          periodicity: string | null
+          related_risk_id: string | null
+          responsible_user: string | null
+          status: string | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          contract_code: string
+          contract_id: string
+          created_at?: string | null
+          id?: string
+          last_submission?: string | null
+          name: string
+          next_due_date?: string | null
+          notes?: string | null
+          periodicity?: string | null
+          related_risk_id?: string | null
+          responsible_user?: string | null
+          status?: string | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          contract_code?: string
+          contract_id?: string
+          created_at?: string | null
+          id?: string
+          last_submission?: string | null
+          name?: string
+          next_due_date?: string | null
+          notes?: string | null
+          periodicity?: string | null
+          related_risk_id?: string | null
+          responsible_user?: string | null
+          status?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_obligations_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_obligations_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+          {
+            foreignKeyName: "contract_obligations_related_risk_id_fkey"
+            columns: ["related_risk_id"]
+            isOneToOne: false
+            referencedRelation: "contract_risks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_obligations_responsible_user_fkey"
+            columns: ["responsible_user"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contract_risks: {
+        Row: {
+          assigned_to: string | null
+          clause_ref: string | null
+          contract_code: string
+          contract_id: string
+          created_at: string | null
+          deadline: string | null
+          description: string | null
+          id: string
+          obligation: boolean | null
+          page: number | null
+          periodicity: string | null
+          probability: string | null
+          risk_type: string
+          severity: string
+          source_doc_type: string | null
+          source_excerpt: string | null
+          source_version: string | null
+          status: string | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          clause_ref?: string | null
+          contract_code: string
+          contract_id: string
+          created_at?: string | null
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          obligation?: boolean | null
+          page?: number | null
+          periodicity?: string | null
+          probability?: string | null
+          risk_type: string
+          severity: string
+          source_doc_type?: string | null
+          source_excerpt?: string | null
+          source_version?: string | null
+          status?: string | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          clause_ref?: string | null
+          contract_code?: string
+          contract_id?: string
+          created_at?: string | null
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          obligation?: boolean | null
+          page?: number | null
+          periodicity?: string | null
+          probability?: string | null
+          risk_type?: string
+          severity?: string
+          source_doc_type?: string | null
+          source_excerpt?: string | null
+          source_version?: string | null
+          status?: string | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_risks_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_risks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_risks_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+        ]
+      }
+      contract_summaries: {
+        Row: {
+          budget_total: number | null
+          compliance_requirements: Json | null
+          contract_code: string
+          contract_id: string
+          created_at: string | null
+          currency: string | null
+          date_issued: string | null
+          id: string
+          milestones: Json | null
+          parties: Json | null
+          provenance: Json | null
+          raw_json: Json | null
+          reajustabilidad: string | null
+          summary_md: string | null
+          updated_at: string | null
+          validity_end: string | null
+          validity_start: string | null
+          version_tag: string | null
+        }
+        Insert: {
+          budget_total?: number | null
+          compliance_requirements?: Json | null
+          contract_code: string
+          contract_id: string
+          created_at?: string | null
+          currency?: string | null
+          date_issued?: string | null
+          id?: string
+          milestones?: Json | null
+          parties?: Json | null
+          provenance?: Json | null
+          raw_json?: Json | null
+          reajustabilidad?: string | null
+          summary_md?: string | null
+          updated_at?: string | null
+          validity_end?: string | null
+          validity_start?: string | null
+          version_tag?: string | null
+        }
+        Update: {
+          budget_total?: number | null
+          compliance_requirements?: Json | null
+          contract_code?: string
+          contract_id?: string
+          created_at?: string | null
+          currency?: string | null
+          date_issued?: string | null
+          id?: string
+          milestones?: Json | null
+          parties?: Json | null
+          provenance?: Json | null
+          raw_json?: Json | null
+          reajustabilidad?: string | null
+          summary_md?: string | null
+          updated_at?: string | null
+          validity_end?: string | null
+          validity_start?: string | null
+          version_tag?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_summaries_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_summaries_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+        ]
+      }
       contract_tasks: {
         Row: {
           budget_uf: number | null
