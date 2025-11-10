@@ -1047,109 +1047,178 @@ function normalizeTaskNumber(taskNumber: string, taskName: string): string {
   return taskNumber;
 }
 
-// FASE 3: Extract contract metadata (summary + risks)
-async function extractContractMetadata(
+// ========================================
+// SPRINT 2: 4 SPECIALIZED EXTRACTION FUNCTIONS WITH GPT-4O
+// ========================================
+
+// Validation function with completeness score
+function validateExtractedData(summary: any, risks: any, obligations: any[], executive: any): {
+  isValid: boolean;
+  completeness: number;
+  warnings: string[];
+  critical_missing: string[];
+} {
+  const warnings: string[] = [];
+  const critical_missing: string[] = [];
+  let totalFields = 0;
+  let populatedFields = 0;
+
+  // Validate summary (weight: 40%)
+  const summaryFields = ['contract_code', 'validity_start', 'validity_end', 'budget_total', 'parties', 'currency'];
+  summaryFields.forEach(field => {
+    totalFields++;
+    if (summary && summary[field] !== null && summary[field] !== undefined) {
+      populatedFields++;
+    } else {
+      critical_missing.push(`summary.${field}`);
+    }
+  });
+
+  // Validate risks (weight: 20%)
+  totalFields += 5;
+  if (risks?.findings && risks.findings.length >= 3) {
+    populatedFields += 3;
+  } else {
+    warnings.push(`Expected at least 3 risks, found ${risks?.findings?.length || 0}`);
+  }
+  if (risks?.findings && risks.findings.length >= 5) {
+    populatedFields += 2;
+  }
+
+  // Validate obligations (weight: 20%)
+  totalFields += 5;
+  if (obligations && obligations.length >= 2) {
+    populatedFields += 3;
+  } else {
+    warnings.push(`Expected at least 2 obligations, found ${obligations?.length || 0}`);
+  }
+  if (obligations && obligations.length >= 4) {
+    populatedFields += 2;
+  }
+
+  // Validate executive summary (weight: 20%)
+  const execFields = ['title', 'dates', 'parties', 'commercials', 'admins'];
+  execFields.forEach(field => {
+    totalFields++;
+    if (executive && executive[field] !== null && executive[field] !== undefined) {
+      populatedFields++;
+    }
+  });
+
+  const completeness = Math.round((populatedFields / totalFields) * 100);
+  const isValid = completeness >= 60 && critical_missing.length === 0;
+
+  return { isValid, completeness, warnings, critical_missing };
+}
+
+// Extract core contract data (Ficha Técnica)
+async function extractContractCore(
   parsedJson: any,
-  contractCode: string,
-  docType: string
-): Promise<{ summary: any; risks: any }> {
-  console.log(`[extractContractMetadata] Processing ${docType} for contract: ${contractCode}`);
+  contractCode: string
+): Promise<{ data: any; tokens: number }> {
+  console.log(`[extractContractCore] Processing contract: ${contractCode}`);
   
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
   
-  // FASE 3: Optimizar contenido enviado - extraer solo texto relevante (primeras 8000 palabras)
   const relevantContent = {
     text: parsedJson.text?.split(' ').slice(0, 8000).join(' ') || '',
     pages: parsedJson.pages?.length || 0,
-    has_tables: !!parsedJson.tables
+    tables: parsedJson.tables ? true : false
   };
   
-  console.log(`[extractContractMetadata] Optimized content: ${relevantContent.text.length} chars, ${relevantContent.pages} pages`);
-  
-  // Extract summary with gpt-4o-mini
-  const summaryPrompt = EXTRACTION_PROMPTS.contract_summary;
-  const summaryPayload = {
-    model: "gpt-4o-mini",  // FASE 1: Cambio a gpt-4o-mini (10x más límite, 95% más barato)
+  const payload = {
+    model: "gpt-4o",  // UPGRADE: GPT-4o for maximum accuracy
     temperature: 0,
-    max_tokens: 4000,  // FASE 3: Limitar tokens de salida
+    max_tokens: 4000,
     messages: [
-      { role: "system", content: summaryPrompt },
+      { role: "system", content: EXTRACTION_PROMPTS.contract_summary },
       { 
         role: "user", 
         content: JSON.stringify({ 
-          content: relevantContent,  // FASE 3: Contenido optimizado
-          contract_code: contractCode, 
-          doc_type: docType 
+          content: relevantContent,
+          contract_code: contractCode
         }) 
       }
     ]
   };
   
-  console.log("[extractContractMetadata] Calling OpenAI for summary extraction (gpt-4o-mini)...");
-  const summaryData = await callOpenAIWithRetry(summaryPayload, openaiKey);  // FASE 2: Usar retry logic
-  const summaryJson = JSON.parse(summaryData.choices[0].message.content);
+  console.log("[extractContractCore] Calling GPT-4o for core extraction...");
+  const response = await callOpenAIWithRetry(payload, openaiKey);
+  const data = JSON.parse(response.choices[0].message.content);
+  const tokens = response.usage?.total_tokens || 0;
   
-  // FASE 5: Logging mejorado con tokens
-  const summaryTokens = summaryData.usage?.total_tokens || 0;
-  console.log(`[extractContractMetadata] ✅ Summary extracted - Tokens used: ${summaryTokens} (prompt: ${summaryData.usage?.prompt_tokens}, completion: ${summaryData.usage?.completion_tokens})`);
+  console.log(`[extractContractCore] ✅ Core extracted - Tokens: ${tokens}`);
+  return { data, tokens };
+}
+
+// Extract risks
+async function extractContractRisks(
+  parsedJson: any,
+  contractCode: string,
+  summaryContext: any
+): Promise<{ data: any; tokens: number }> {
+  console.log(`[extractContractRisks] Processing contract: ${contractCode}`);
   
-  // FASE 4: Delay de 500ms antes de la siguiente llamada
-  console.log("[extractContractMetadata] Waiting 500ms before risks extraction...");
-  await new Promise(resolve => setTimeout(resolve, 500));
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
   
-  // FASE 3: Optimizar contenido para riesgos - extraer solo cláusulas relevantes
+  // Extract relevant clauses for risk analysis
   const riskRelevantSections = parsedJson.text?.match(
     /(PRIMERO|SEGUNDO|TERCERO|CUARTO|QUINTO|SEXTO|SÉPTIMO|OCTAVO|NOVENO|DÉCIMO|CLÁUSULA)[^\n]+(?:\n[^\n]+){0,25}/gi
   ) || [];
   
-  console.log(`[extractContractMetadata] Extracted ${riskRelevantSections.length} relevant clauses for risks`);
-  
-  // Extract risks with gpt-4o-mini
-  const risksPrompt = EXTRACTION_PROMPTS.contract_risks;
-  const risksPayload = {
-    model: "gpt-4o-mini",  // FASE 1: Cambio a gpt-4o-mini
+  const payload = {
+    model: "gpt-4o",  // UPGRADE: GPT-4o for maximum accuracy
     temperature: 0,
-    max_tokens: 3000,  // FASE 3: Limitar tokens de salida
+    max_tokens: 3500,
     messages: [
-      { role: "system", content: risksPrompt },
+      { role: "system", content: EXTRACTION_PROMPTS.contract_risks },
       { 
         role: "user", 
         content: JSON.stringify({ 
-          clauses: riskRelevantSections.slice(0, 20),  // FASE 3: Máximo 20 cláusulas
-          contract_code: contractCode, 
-          doc_type: docType,
-          summary: summaryJson,  // Incluir summary ya extraído para contexto
-          version_tag: summaryJson.version_tag || null
+          clauses: riskRelevantSections.slice(0, 25),
+          contract_code: contractCode,
+          summary: summaryContext
         }) 
       }
     ]
   };
   
-  console.log("[extractContractMetadata] Calling OpenAI for risks extraction (gpt-4o-mini)...");
-  const risksData = await callOpenAIWithRetry(risksPayload, openaiKey);  // FASE 2: Usar retry logic
-  const risksJson = JSON.parse(risksData.choices[0].message.content);
+  console.log("[extractContractRisks] Calling GPT-4o for risks extraction...");
+  const response = await callOpenAIWithRetry(payload, openaiKey);
+  const data = JSON.parse(response.choices[0].message.content);
+  const tokens = response.usage?.total_tokens || 0;
   
-  // FASE 5: Logging mejorado con tokens
-  const risksTokens = risksData.usage?.total_tokens || 0;
-  const totalTokens = summaryTokens + risksTokens;
-  console.log(`[extractContractMetadata] ✅ Risks extracted - Tokens used: ${risksTokens} (prompt: ${risksData.usage?.prompt_tokens}, completion: ${risksData.usage?.completion_tokens})`);
-  console.log(`[extractContractMetadata] 📊 Total tokens consumed for metadata extraction: ${totalTokens}`);
+  console.log(`[extractContractRisks] ✅ Risks extracted - Tokens: ${tokens}, Findings: ${data.findings?.length || 0}`);
+  return { data, tokens };
+}
+
+// Extract obligations
+async function extractContractObligations(
+  parsedJson: any,
+  contractCode: string,
+  risksContext: any
+): Promise<{ data: any[]; tokens: number }> {
+  console.log(`[extractContractObligations] Processing contract: ${contractCode}`);
   
-  return { summary: summaryJson, risks: risksJson };
+  // Obligations are included in risks extraction, extract from risks.obligations
+  const obligations = risksContext?.obligations || [];
+  
+  console.log(`[extractContractObligations] ✅ Extracted ${obligations.length} obligations from risks context`);
+  return { data: obligations, tokens: 0 }; // No additional API call needed
 }
 
 // Extract executive summary for dashboard cards
 async function extractExecutiveSummary(
   parsedJson: any,
   contractCode: string
-): Promise<any> {
+): Promise<{ data: any; tokens: number }> {
   console.log(`[extractExecutiveSummary] Processing contract: ${contractCode}`);
   
   const openaiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
   
-  // Optimizar contenido - primeras 10000 palabras (incluye más que summary normal)
   const relevantContent = {
     text: parsedJson.text?.split(' ').slice(0, 10000).join(' ') || '',
     tables: parsedJson.tables || [],
@@ -1157,7 +1226,7 @@ async function extractExecutiveSummary(
   };
   
   const payload = {
-    model: "gpt-4o-mini",
+    model: "gpt-4o",  // UPGRADE: GPT-4o for maximum accuracy
     temperature: 0,
     max_tokens: 5000,
     messages: [
@@ -1172,45 +1241,142 @@ async function extractExecutiveSummary(
     ]
   };
   
-  console.log("[extractExecutiveSummary] Calling OpenAI for executive summary extraction...");
-  const data = await callOpenAIWithRetry(payload, openaiKey);
-  const execSummary = JSON.parse(data.choices[0].message.content);
+  console.log("[extractExecutiveSummary] Calling GPT-4o for executive summary...");
+  const response = await callOpenAIWithRetry(payload, openaiKey);
+  const data = JSON.parse(response.choices[0].message.content);
+  const tokens = response.usage?.total_tokens || 0;
   
-  const tokens = data.usage?.total_tokens || 0;
-  console.log(`[extractExecutiveSummary] ✅ Executive summary extracted - Tokens used: ${tokens}`);
-  
-  return execSummary;
+  console.log(`[extractExecutiveSummary] ✅ Executive extracted - Tokens: ${tokens}`);
+  return { data, tokens };
 }
 
-// FASE 3: Upsert contract metadata into database
+// Main extraction orchestrator with parallel execution
+async function extractContractMetadata(
+  parsedJson: any,
+  contractCode: string,
+  docType: string
+): Promise<{ 
+  summary: any; 
+  risks: any; 
+  obligations: any[];
+  executive: any;
+  validation: any;
+  totalTokens: number;
+}> {
+  console.log(`[extractContractMetadata] 🚀 Starting PARALLEL extraction for: ${contractCode}`);
+  
+  const startTime = Date.now();
+  
+  // PHASE 1: Extract core summary and executive in parallel (no dependencies)
+  const [coreResult, execResult] = await Promise.allSettled([
+    extractContractCore(parsedJson, contractCode),
+    extractExecutiveSummary(parsedJson, contractCode)
+  ]);
+  
+  let summary: any = null;
+  let executive: any = null;
+  let tokensPhase1 = 0;
+  
+  if (coreResult.status === 'fulfilled') {
+    summary = coreResult.value.data;
+    tokensPhase1 += coreResult.value.tokens;
+  } else {
+    console.error('[extractContractMetadata] ❌ Core extraction failed:', coreResult.reason);
+  }
+  
+  if (execResult.status === 'fulfilled') {
+    executive = execResult.value.data;
+    tokensPhase1 += execResult.value.tokens;
+  } else {
+    console.error('[extractContractMetadata] ❌ Executive extraction failed:', execResult.reason);
+  }
+  
+  console.log(`[extractContractMetadata] ✅ Phase 1 complete - Tokens: ${tokensPhase1}`);
+  
+  // PHASE 2: Extract risks and obligations (risks need summary context)
+  const risksResult = await extractContractRisks(parsedJson, contractCode, summary).catch(err => {
+    console.error('[extractContractMetadata] ❌ Risks extraction failed:', err);
+    return { data: { findings: [], obligations: [] }, tokens: 0 };
+  });
+  
+  const risks = risksResult.data;
+  const tokensPhase2 = risksResult.tokens;
+  
+  console.log(`[extractContractMetadata] ✅ Phase 2 complete - Tokens: ${tokensPhase2}`);
+  
+  // PHASE 3: Extract obligations from risks context
+  const obligationsResult = await extractContractObligations(parsedJson, contractCode, risks);
+  const obligations = obligationsResult.data;
+  
+  // Calculate totals
+  const totalTokens = tokensPhase1 + tokensPhase2;
+  const elapsed = Date.now() - startTime;
+  
+  // Validate extracted data
+  const validation = validateExtractedData(summary, risks, obligations, executive);
+  
+  console.log(`[extractContractMetadata] 🎉 EXTRACTION COMPLETE:`, {
+    elapsed_ms: elapsed,
+    total_tokens: totalTokens,
+    completeness: `${validation.completeness}%`,
+    summary_ok: !!summary,
+    risks_count: risks?.findings?.length || 0,
+    obligations_count: obligations.length,
+    executive_ok: !!executive,
+    review_required: !validation.isValid
+  });
+  
+  return { summary, risks, obligations, executive, validation, totalTokens };
+}
+
+// Upsert contract metadata into database with enhanced error handling
 async function upsertContractMetadata(
   supabase: any,
   contractId: string,
   contractCode: string,
-  summary: any,
-  risks: any
+  extractionResult: {
+    summary: any;
+    risks: any;
+    obligations: any[];
+    executive: any;
+    validation: any;
+  }
 ): Promise<void> {
   console.log(`[upsertContractMetadata] Upserting for contract: ${contractCode}`);
   
-  // 1. Upsert contract_summaries
+  const { summary, risks, obligations, executive, validation } = extractionResult;
+  
+  // Prepare raw_json with all extracted data
+  const fullRawJson = {
+    ...summary,
+    executive_summary: executive,
+    extraction_quality: {
+      completeness: validation.completeness,
+      warnings: validation.warnings,
+      critical_missing: validation.critical_missing,
+      review_required: !validation.isValid
+    }
+  };
+  
+  // 1. Upsert contract_summaries with UNIQUE constraint on contract_id
   const { error: summaryErr } = await supabase
     .from('contract_summaries')
     .upsert({
       contract_id: contractId,
       contract_code: contractCode,
-      version_tag: summary.version_tag,
-      date_issued: summary.date_issued,
-      validity_start: summary.validity_start,
-      validity_end: summary.validity_end,
-      currency: summary.currency,
-      budget_total: summary.budget_total,
-      reajustabilidad: summary.reajustabilidad,
-      milestones: summary.milestones,
-      compliance_requirements: summary.compliance_requirements,
-      parties: summary.parties,
-      summary_md: summary.summary_md,
-      provenance: summary.provenance,
-      raw_json: summary,
+      version_tag: summary?.version_tag || null,
+      date_issued: summary?.date_issued || null,
+      validity_start: summary?.validity_start || null,
+      validity_end: summary?.validity_end || null,
+      currency: summary?.currency || null,
+      budget_total: summary?.budget_total || null,
+      reajustabilidad: summary?.reajustabilidad || null,
+      milestones: summary?.milestones || [],
+      compliance_requirements: summary?.compliance_requirements || [],
+      parties: summary?.parties || {},
+      summary_md: summary?.summary_md || null,
+      provenance: summary?.provenance || [],
+      raw_json: fullRawJson,
       updated_at: new Date().toISOString()
     }, {
       onConflict: 'contract_id',
@@ -1222,24 +1388,21 @@ async function upsertContractMetadata(
     throw new Error(`Failed to upsert contract summary: ${summaryErr.message}`);
   }
   
-  console.log("[upsertContractMetadata] ✓ Summary upserted");
+  console.log(`[upsertContractMetadata] ✅ Summary upserted (completeness: ${validation.completeness}%)`);
   
-  // 2. Insert contract_risks (findings)
-  for (const finding of (risks.findings || [])) {
-    // Check for duplicates using title + clause_ref
-    const { data: existing } = await supabase
-      .from('contract_risks')
-      .select('id')
-      .eq('contract_code', contractCode)
-      .eq('title', finding.title)
-      .eq('clause_ref', finding.clause_ref || null)
-      .maybeSingle();
-    
-    if (existing) {
-      console.log(`[upsertContractMetadata] Skipping duplicate risk: ${finding.title}`);
-      continue;
-    }
-    
+  // 2. Delete existing risks before inserting new ones (full refresh)
+  const { error: deleteRisksErr } = await supabase
+    .from('contract_risks')
+    .delete()
+    .eq('contract_id', contractId);
+  
+  if (deleteRisksErr) {
+    console.warn("[upsertContractMetadata] Warning deleting old risks:", deleteRisksErr);
+  }
+  
+  // 3. Insert new risks
+  let risksInserted = 0;
+  for (const finding of (risks?.findings || [])) {
     const { error: riskErr } = await supabase
       .from('contract_risks')
       .insert({
@@ -1249,27 +1412,39 @@ async function upsertContractMetadata(
         title: finding.title,
         description: finding.description,
         severity: finding.severity,
-        probability: finding.probability,
-        obligation: finding.obligation,
-        deadline: finding.deadline,
-        periodicity: finding.periodicity,
-        clause_ref: finding.clause_ref,
-        page: finding.page,
-        source_doc_type: finding.source_doc_type,
-        source_version: risks.version_tag || finding.source_version,
-        source_excerpt: finding.source_excerpt
+        probability: finding.probability || null,
+        obligation: finding.obligation || false,
+        deadline: finding.deadline || null,
+        periodicity: finding.periodicity || null,
+        clause_ref: finding.clause_ref || null,
+        page: finding.page || null,
+        source_doc_type: finding.source_doc_type || 'contract',
+        source_version: finding.source_version || null,
+        source_excerpt: finding.source_excerpt || null
       });
     
-    if (riskErr) {
+    if (!riskErr) {
+      risksInserted++;
+    } else {
       console.error(`[upsertContractMetadata] Error inserting risk: ${finding.title}`, riskErr);
-      // Continue with next risk instead of throwing
     }
   }
   
-  console.log(`[upsertContractMetadata] ✓ ${risks.findings?.length || 0} risks inserted`);
+  console.log(`[upsertContractMetadata] ✅ ${risksInserted}/${risks?.findings?.length || 0} risks inserted`);
   
-  // 3. Insert contract_obligations
-  for (const obligation of (risks.obligations || [])) {
+  // 4. Delete existing obligations before inserting new ones (full refresh)
+  const { error: deleteObligationsErr } = await supabase
+    .from('contract_obligations')
+    .delete()
+    .eq('contract_id', contractId);
+  
+  if (deleteObligationsErr) {
+    console.warn("[upsertContractMetadata] Warning deleting old obligations:", deleteObligationsErr);
+  }
+  
+  // 5. Insert new obligations
+  let obligationsInserted = 0;
+  for (const obligation of (obligations || [])) {
     const { error: obligationErr } = await supabase
       .from('contract_obligations')
       .insert({
@@ -1277,18 +1452,20 @@ async function upsertContractMetadata(
         contract_code: contractCode,
         name: obligation.name,
         type: obligation.type,
-        periodicity: obligation.periodicity,
-        next_due_date: obligation.next_due_date,
+        periodicity: obligation.periodicity || null,
+        next_due_date: obligation.next_due_date || null,
         notes: obligation.related_clause_ref ? `Cláusula: ${obligation.related_clause_ref}` : null
       });
     
-    if (obligationErr) {
+    if (!obligationErr) {
+      obligationsInserted++;
+    } else {
       console.error(`[upsertContractMetadata] Error inserting obligation: ${obligation.name}`, obligationErr);
-      // Continue with next obligation
     }
   }
   
-  console.log(`[upsertContractMetadata] ✓ ${risks.obligations?.length || 0} obligations inserted`);
+  console.log(`[upsertContractMetadata] ✅ ${obligationsInserted}/${obligations?.length || 0} obligations inserted`);
+  console.log(`[upsertContractMetadata] 🎉 Full metadata upsert complete!`);
 }
 
 serve(async (req) => {
@@ -1886,36 +2063,58 @@ serve(async (req) => {
     }
     
     // Step 4.6: ALWAYS extract and upsert contract metadata for contract documents
-    // This runs regardless of whether the contract was just created or already existed
+    // SPRINT 2: Using parallel GPT-4o extractions
     if (document_type === "contract" && contract) {
       try {
-        console.log("[process-document] Extracting contract metadata (summary + risks + executive)...");
+        console.log("[process-document] 🚀 Starting FULL contract extraction (GPT-4o)...");
         const extractedCode = contract.code || structured.contract_code;
         
-        // Extracción paralela del resumen normal y ejecutivo
-        const [metadataResult, execSummary] = await Promise.all([
-          extractContractMetadata(parsedJson, extractedCode, document_type),
-          extractExecutiveSummary(parsedJson, extractedCode)
-        ]);
+        // Single call with parallel extraction
+        const extractionResult = await extractContractMetadata(parsedJson, extractedCode, document_type);
         
-        const { summary, risks } = metadataResult;
+        // Update job progress with extraction results
+        await supabase
+          .from("document_processing_jobs")
+          .update({ 
+            progress: {
+              phase: 'extraction_complete',
+              completeness: extractionResult.validation.completeness,
+              tokens_used: extractionResult.totalTokens,
+              warnings: extractionResult.validation.warnings,
+              review_required: !extractionResult.validation.isValid
+            }
+          })
+          .eq("id", job.id);
         
-        // Agregar el executive summary al raw_json del summary
-        summary.executive_summary = execSummary;
-        
+        // Upsert all metadata
         await upsertContractMetadata(
           supabase,
           contract.id,
           extractedCode,
-          summary,
-          risks
+          extractionResult
         );
         
         console.log("[process-document] ✅ Contract metadata extracted and upserted");
+        console.log(`[process-document] 📊 Extraction quality: ${extractionResult.validation.completeness}% completeness, ${extractionResult.totalTokens} tokens`);
+        
+        if (!extractionResult.validation.isValid) {
+          console.warn("[process-document] ⚠️ Review required:", extractionResult.validation.warnings);
+        }
       } catch (metaErr) {
-        console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
-        // Don't fail the whole job, just log warning
-        console.warn("[process-document] Continuing without metadata extraction");
+        console.error("[process-document] ❌ Error extracting contract metadata:", metaErr);
+        
+        // Update job with error but don't fail completely
+        await supabase
+          .from("document_processing_jobs")
+          .update({ 
+            progress: {
+              phase: 'extraction_failed',
+              error: String(metaErr)
+            }
+          })
+          .eq("id", job.id);
+        
+        console.warn("[process-document] Continuing without complete metadata extraction");
       }
     }
     

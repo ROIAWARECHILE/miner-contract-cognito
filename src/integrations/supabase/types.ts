@@ -846,14 +846,14 @@ export type Database = {
           {
             foreignKeyName: "contract_summaries_contract_id_fkey"
             columns: ["contract_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "contracts"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "contract_summaries_contract_id_fkey"
             columns: ["contract_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "view_contract_overview"
             referencedColumns: ["contract_id"]
           },

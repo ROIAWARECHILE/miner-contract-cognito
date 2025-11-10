@@ -57,7 +57,7 @@ function Line({ label, value }: { label: string; value?: React.ReactNode }) {
   );
 }
 
-export default function ContractExecutiveSummary({ data }: Props) {
+export function ContractExecutiveSummary({ data }: Props) {
   const fmtUF = (n?: number | null) => n == null ? "—" : `${n.toLocaleString("es-CL")} UF`;
   const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('es-CL') : "—";
 
@@ -181,3 +181,6 @@ export default function ContractExecutiveSummary({ data }: Props) {
     </div>
   );
 }
+
+export default ContractExecutiveSummary;
+
