@@ -1640,7 +1640,7 @@ serve(async (req) => {
       review_required: structured.meta?.review_required || false
     });
 
-    // Step 4.5: For contract documents, get or create the contract
+    // Step 4.5: For contract documents, ensure contract exists
     if (document_type === "contract" && !contract) {
       const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
       const extractedTitle = structured.title || structured.name || "Contrato sin título";
@@ -1650,7 +1650,7 @@ serve(async (req) => {
       // First, check if contract already exists
       const { data: existingContract, error: existingError } = await supabase
         .from("contracts")
-        .select("id")
+        .select("*")
         .eq("code", extractedCode)
         .single();
       
@@ -1683,30 +1683,6 @@ serve(async (req) => {
           .from("document_processing_jobs")
           .update({ contract_id: contract.id })
           .eq("id", job.id);
-        
-        // FASE 3: Extract and upsert contract metadata (summary + risks)
-        try {
-          console.log("[process-document] Extracting contract metadata (summary + risks)...");
-          const { summary, risks } = await extractContractMetadata(
-            parsedJson,
-            extractedCode,
-            document_type
-          );
-          
-          await upsertContractMetadata(
-            supabase,
-            contract.id,
-            extractedCode,
-            summary,
-            risks
-          );
-          
-          console.log("[process-document] ✅ Contract metadata extracted and upserted");
-        } catch (metaErr) {
-          console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
-          // Don't fail the whole job, just log warning
-          console.warn("[process-document] Continuing without metadata extraction");
-        }
       } else {
         // Contract doesn't exist, create it
         console.log(`[process-document] Creating new contract: ${extractedCode}`);
@@ -1737,60 +1713,66 @@ serve(async (req) => {
           .eq("id", job.id);
         
         console.log(`[process-document] Contract created: ${contract.id}`);
-        
-        // FASE 3: Extract and upsert contract metadata (summary + risks) for new contract
-        try {
-          console.log("[process-document] Extracting contract metadata (summary + risks)...");
-          const { summary, risks } = await extractContractMetadata(
-            parsedJson,
-            extractedCode,
-            document_type
-          );
-          
-          await upsertContractMetadata(
-            supabase,
-            contract.id,
-            extractedCode,
-            summary,
-            risks
-          );
-          
-          console.log("[process-document] ✅ Contract metadata extracted and upserted");
-        } catch (metaErr) {
-          console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
-          // Don't fail the whole job, just log warning
-          console.warn("[process-document] Continuing without metadata extraction");
-        }
       }
-      
-      // FASE 5: Validar que el contrato tenga datos completos
-      if (contract) {
-        const hasClient = contract.metadata?.client || structured.client;
-        const hasContractor = contract.metadata?.contractor || structured.contractor;
-        const hasBudget = contract.metadata?.budget_uf || structured.budget_uf;
+    }
+    
+    // Step 4.6: ALWAYS extract and upsert contract metadata for contract documents
+    // This runs regardless of whether the contract was just created or already existed
+    if (document_type === "contract" && contract) {
+      try {
+        console.log("[process-document] Extracting contract metadata (summary + risks)...");
+        const extractedCode = contract.code || structured.contract_code;
         
-        if (!hasClient || !hasContractor || !hasBudget) {
-          console.warn(
-            `[process-document] ⚠️ Contract ${contract.code || extractedCode} has incomplete data:`,
-            { hasClient: !!hasClient, hasContractor: !!hasContractor, hasBudget: !!hasBudget }
-          );
-          
-          // Marcar en metadata que requiere revisión
-          await supabase
-            .from("contracts")
-            .update({
-              metadata: {
-                ...(contract.metadata || {}),
-                incomplete_data: true,
-                missing_fields: [
-                  !hasClient && 'client',
-                  !hasContractor && 'contractor',
-                  !hasBudget && 'budget_uf'
-                ].filter(Boolean)
-              }
-            })
-            .eq("id", contract.id);
-        }
+        const { summary, risks } = await extractContractMetadata(
+          parsedJson,
+          extractedCode,
+          document_type
+        );
+        
+        await upsertContractMetadata(
+          supabase,
+          contract.id,
+          extractedCode,
+          summary,
+          risks
+        );
+        
+        console.log("[process-document] ✅ Contract metadata extracted and upserted");
+      } catch (metaErr) {
+        console.error("[process-document] ⚠️ Error extracting contract metadata:", metaErr);
+        // Don't fail the whole job, just log warning
+        console.warn("[process-document] Continuing without metadata extraction");
+      }
+    }
+    
+    // FASE 5: Validar que el contrato tenga datos completos
+    if (document_type === "contract" && contract) {
+      const extractedCode = contract.code || structured.contract_code;
+      const hasClient = contract.metadata?.client || structured.client;
+      const hasContractor = contract.metadata?.contractor || structured.contractor;
+      const hasBudget = contract.metadata?.budget_uf || structured.budget_uf;
+      
+      if (!hasClient || !hasContractor || !hasBudget) {
+        console.warn(
+          `[process-document] ⚠️ Contract ${contract.code || extractedCode} has incomplete data:`,
+          { hasClient: !!hasClient, hasContractor: !!hasContractor, hasBudget: !!hasBudget }
+        );
+        
+        // Marcar en metadata que requiere revisión
+        await supabase
+          .from("contracts")
+          .update({
+            metadata: {
+              ...(contract.metadata || {}),
+              incomplete_data: true,
+              missing_fields: [
+                !hasClient && 'client',
+                !hasContractor && 'contractor',
+                !hasBudget && 'budget_uf'
+              ].filter(Boolean)
+            }
+          })
+          .eq("id", contract.id);
       }
     }
 
