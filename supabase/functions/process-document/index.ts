@@ -1356,7 +1356,45 @@ async function extractContractObligations(
   return { data: obligations, tokens: 0 }; // No additional API call needed
 }
 
-// Extract executive summary for dashboard cards
+// Detect document type based on filename and content
+function detectDocumentType(filename: string, parsedText: string): string {
+  const lower = filename.toLowerCase();
+  const textLower = parsedText.toLowerCase();
+  
+  // Contract
+  if (lower.includes('contrato') || lower.includes('proforma') || textLower.includes('comparecencia')) {
+    return 'contract';
+  }
+  
+  // Annexes and Technical Proposals
+  if (lower.includes('anexo') || lower.includes('annex') || 
+      lower.includes('propuesta') || lower.includes('proposal') ||
+      lower.includes('-pte-') || textLower.includes('propuesta técnica')) {
+    return 'annex';
+  }
+  
+  // SSO Plan
+  if (lower.includes('sso') || lower.includes('plan de sso') || 
+      lower.includes('seguridad') && lower.includes('salud')) {
+    return 'plan_sso';
+  }
+  
+  // Quality Plan
+  if (lower.includes('calidad') || lower.includes('quality') ||
+      (lower.includes('plan') && textLower.includes('aseguramiento de calidad'))) {
+    return 'plan_calidad';
+  }
+  
+  // Technical proposal/study
+  if (lower.includes('estudio') || lower.includes('study') || 
+      lower.includes('técnico') || lower.includes('technical')) {
+    return 'propuesta';
+  }
+  
+  return 'unknown';
+}
+
+// Extract executive summary for dashboard cards with CONTRACT_EXECUTIVE_SUMMARY_PROMPT
 async function extractExecutiveSummary(
   parsedJson: any,
   contractCode: string
@@ -1395,6 +1433,198 @@ async function extractExecutiveSummary(
   
   console.log(`[extractExecutiveSummary] ✅ Executive extracted - Tokens: ${tokens}`);
   return { data, tokens };
+}
+
+// NEW: Extract dashboard cards with CONTRACT_EXECUTIVE_SUMMARY_PROMPT
+async function extractDashboardCards(
+  parsedJson: any,
+  contractCode: string,
+  filename: string,
+  detectedType: string
+): Promise<{ data: any; tokens: number }> {
+  console.log(`[extractDashboardCards] Processing ${detectedType}: ${filename}`);
+  
+  const openaiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!openaiKey) throw new Error("OPENAI_API_KEY not configured");
+  
+  const relevantContent = {
+    text: parsedJson.text || '',
+    tables: parsedJson.tables || [],
+    pages: parsedJson.pages?.length || 0
+  };
+  
+  const userPrompt = `Document type: ${detectedType}
+Filename: ${filename}
+Contract code: ${contractCode}
+
+Document content:
+${JSON.stringify(relevantContent)}
+
+Extract information relevant to this document type and generate cards accordingly.`;
+  
+  const payload = {
+    model: "gpt-4o",
+    temperature: 0,
+    max_tokens: 6000,
+    messages: [
+      { role: "system", content: CONTRACT_EXECUTIVE_SUMMARY_PROMPT },
+      { role: "user", content: userPrompt }
+    ]
+  };
+  
+  console.log("[extractDashboardCards] Calling GPT-4o for dashboard cards extraction...");
+  const response = await callOpenAIWithRetry(payload, openaiKey);
+  let content = response.choices[0].message.content;
+  
+  // Clean markdown formatting
+  content = content.replace(/^```json\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
+  
+  const data = JSON.parse(content);
+  const tokens = response.usage?.total_tokens || 0;
+  
+  console.log(`[extractDashboardCards] ✅ Cards extracted - Tokens: ${tokens}, Cards: ${data.cards?.length || 0}`);
+  return { data, tokens };
+}
+
+// NEW: Merge incremental data into contract_summaries.summary_json
+async function mergeDashboardCards(
+  supabase: any,
+  contractId: string,
+  contractCode: string,
+  newCards: any,
+  filename: string
+): Promise<void> {
+  console.log(`[mergeDashboardCards] Merging cards for contract: ${contractCode}`);
+  
+  // 1. Fetch existing summary
+  const { data: existing, error: fetchError } = await supabase
+    .from('contract_summaries')
+    .select('summary_json')
+    .eq('contract_code', contractCode)
+    .maybeSingle();
+  
+  if (fetchError) {
+    console.error("[mergeDashboardCards] Error fetching existing summary:", fetchError);
+    throw new Error(`Failed to fetch existing summary: ${fetchError.message}`);
+  }
+  
+  let mergedSummary: any;
+  
+  if (!existing || !existing.summary_json) {
+    // No existing summary - use new data as-is
+    console.log("[mergeDashboardCards] No existing summary, creating new");
+    mergedSummary = newCards;
+  } else {
+    // Merge existing with new data
+    console.log("[mergeDashboardCards] Merging with existing summary");
+    const existingSummary = existing.summary_json as any;
+    
+    // Merge cards by category
+    const existingCards = existingSummary.cards || [];
+    const newCardsList = newCards.cards || [];
+    
+    const cardsByCategory: Record<string, any> = {};
+    
+    // Add existing cards
+    for (const card of existingCards) {
+      cardsByCategory[card.category] = card;
+    }
+    
+    // Merge new cards (deep merge fields)
+    for (const newCard of newCardsList) {
+      const category = newCard.category;
+      
+      if (cardsByCategory[category]) {
+        // Merge fields without overwriting existing non-null values
+        const existingFields = cardsByCategory[category].fields || {};
+        const newFields = newCard.fields || {};
+        
+        cardsByCategory[category].fields = {
+          ...existingFields,
+          ...Object.fromEntries(
+            Object.entries(newFields).filter(([key, value]) => {
+              // Only add if field doesn't exist or is null/empty
+              return !existingFields[key] || 
+                     existingFields[key] === null || 
+                     (Array.isArray(existingFields[key]) && existingFields[key].length === 0);
+            })
+          )
+        };
+        
+        // For arrays, merge them
+        for (const [key, value] of Object.entries(newFields)) {
+          if (Array.isArray(value) && Array.isArray(existingFields[key])) {
+            // Merge arrays, removing duplicates
+            cardsByCategory[category].fields[key] = [
+              ...existingFields[key],
+              ...value.filter((item: any) => 
+                !existingFields[key].some((existing: any) => 
+                  JSON.stringify(existing) === JSON.stringify(item)
+                )
+              )
+            ];
+          }
+        }
+      } else {
+        // New category - add as-is
+        cardsByCategory[category] = newCard;
+      }
+    }
+    
+    // Update provenance
+    const existingProvenance = existingSummary.provenance || {};
+    const newProvenance = newCards.provenance || {};
+    
+    const mergedProvenance = {
+      contract_file: existingProvenance.contract_file || newProvenance.contract_file,
+      annexes: [
+        ...(existingProvenance.annexes || []),
+        ...(newProvenance.annexes || []).filter((a: string) => 
+          !(existingProvenance.annexes || []).includes(a)
+        ),
+        filename
+      ].filter((a: string) => a !== existingProvenance.contract_file)
+    };
+    
+    // Update meta
+    mergedSummary = {
+      contract_code: contractCode,
+      summary_version: existingSummary.summary_version || newCards.summary_version || "v1.0",
+      cards: Object.values(cardsByCategory),
+      provenance: mergedProvenance,
+      meta: {
+        confidence: Math.max(
+          existingSummary.meta?.confidence || 0,
+          newCards.meta?.confidence || 0
+        ),
+        source_pages: [
+          ...(existingSummary.meta?.source_pages || []),
+          ...(newCards.meta?.source_pages || [])
+        ],
+        last_updated: new Date().toISOString()
+      }
+    };
+  }
+  
+  // 2. Upsert merged summary
+  const { error: upsertError } = await supabase
+    .from('contract_summaries')
+    .upsert({
+      contract_id: contractId,
+      contract_code: contractCode,
+      summary_json: mergedSummary,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'contract_code',
+      ignoreDuplicates: false
+    });
+  
+  if (upsertError) {
+    console.error("[mergeDashboardCards] Error upserting summary:", upsertError);
+    throw new Error(`Failed to upsert merged summary: ${upsertError.message}`);
+  }
+  
+  console.log(`[mergeDashboardCards] ✅ Merged summary saved - Total cards: ${mergedSummary.cards.length}`);
 }
 
 // Main extraction orchestrator with parallel execution
@@ -2133,6 +2363,60 @@ serve(async (req) => {
       review_required: structured.meta?.review_required || false
     });
 
+    // Step 4.4: Auto-detect document type and process executive summary cards
+    const filename = storage_path.split("/").pop() || "unknown";
+    const documentText = parsedJson.text || '';
+    const autoDetectedType = detectDocumentType(filename, documentText);
+    
+    // List of document types that should generate executive summary cards
+    const EXECUTIVE_SUMMARY_TYPES = ['contract', 'annex', 'plan_sso', 'plan_calidad', 'propuesta'];
+    
+    if (EXECUTIVE_SUMMARY_TYPES.includes(autoDetectedType) || EXECUTIVE_SUMMARY_TYPES.includes(document_type)) {
+      const effectiveType = EXECUTIVE_SUMMARY_TYPES.includes(document_type) ? document_type : autoDetectedType;
+      
+      console.log(`[process-document] 📋 Document is contractual type: ${effectiveType}, extracting dashboard cards...`);
+      
+      try {
+        // Only process if we have a contract or contract_code
+        const effectiveCode = contract_code || contract?.code;
+        
+        if (effectiveCode) {
+          const cardsResult = await extractDashboardCards(
+            parsedJson,
+            effectiveCode,
+            filename,
+            effectiveType
+          );
+          
+          // If contract doesn't exist yet but we have extracted data, we'll create it below
+          if (contract?.id) {
+            // Merge cards into contract_summaries
+            await mergeDashboardCards(
+              supabase,
+              contract.id,
+              effectiveCode,
+              cardsResult.data,
+              filename
+            );
+            
+            console.log(`[process-document] ✅ Dashboard cards extracted and merged (${cardsResult.tokens} tokens)`);
+          } else {
+            console.log(`[process-document] ℹ️ Cards extracted but no contract ID yet, will merge after contract creation`);
+            // Store cards result for later merge
+            structured._dashboard_cards = cardsResult.data;
+            structured._dashboard_cards_tokens = cardsResult.tokens;
+          }
+        } else {
+          console.warn(`[process-document] ⚠️ Cannot extract dashboard cards: no contract_code available`);
+        }
+      } catch (cardsError) {
+        console.error(`[process-document] ❌ Error extracting dashboard cards:`, cardsError);
+        // Don't fail the whole process, just log the error
+      }
+    } else {
+      console.log(`[process-document] Document type ${document_type}/${autoDetectedType} does not require executive summary cards`);
+    }
+
     // Step 4.5: For contract documents, ensure contract exists
     if (document_type === "contract" && !contract) {
       const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
@@ -2206,6 +2490,47 @@ serve(async (req) => {
           .eq("id", job.id);
         
         console.log(`[process-document] Contract created: ${contract.id}`);
+        
+        // If we have pending dashboard cards, merge them now
+        if (structured._dashboard_cards) {
+          console.log(`[process-document] 📋 Merging pending dashboard cards for newly created contract`);
+          try {
+            await mergeDashboardCards(
+              supabase,
+              contract.id,
+              contract.code,
+              structured._dashboard_cards,
+              filename
+            );
+            console.log(`[process-document] ✅ Dashboard cards merged (${structured._dashboard_cards_tokens || 0} tokens)`);
+          } catch (mergeError) {
+            console.error(`[process-document] ❌ Error merging pending cards:`, mergeError);
+            // Don't fail the whole process
+          }
+          // Clean up temporary fields
+          delete structured._dashboard_cards;
+          delete structured._dashboard_cards_tokens;
+        }
+      }
+      
+      // Also merge dashboard cards if contract existed but we have new cards
+      if (contract && structured._dashboard_cards) {
+        console.log(`[process-document] 📋 Merging dashboard cards for existing contract`);
+        try {
+          await mergeDashboardCards(
+            supabase,
+            contract.id,
+            contract.code,
+            structured._dashboard_cards,
+            filename
+          );
+          console.log(`[process-document] ✅ Dashboard cards merged (${structured._dashboard_cards_tokens || 0} tokens)`);
+        } catch (mergeError) {
+          console.error(`[process-document] ❌ Error merging cards:`, mergeError);
+        }
+        // Clean up temporary fields
+        delete structured._dashboard_cards;
+        delete structured._dashboard_cards_tokens;
       }
     }
     
