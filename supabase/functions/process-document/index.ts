@@ -194,6 +194,152 @@ VALIDATION (non-blocking):
 
 Return ONLY the JSON object (no markdown, no \`\`\`json blocks, no explanatory text).`;
 
+// CONTRACT EXECUTIVE SUMMARY extraction prompt - Generates dashboard cards
+const CONTRACT_EXECUTIVE_SUMMARY_PROMPT = `Eres un asistente experto en administración de contratos mineros, especializado en interpretación documental técnica, legal y económica. 
+Analizas contratos, anexos técnicos, planes y propuestas para construir un **gemelo digital del contrato**, estructurado en información crítica, indicadores y responsables.
+
+Tu misión:
+1. **Extraer entidades y hechos clave** del contrato y sus anexos.
+2. **Consolidar y complementar** la información existente en Supabase sin sobrescribir campos previos.
+3. **Generar un resumen ejecutivo estructurado** en formato JSON, con tarjetas (cards) temáticas, listo para renderizar en el dashboard del contrato.
+4. **Reconocer documentos relacionados** (Contrato, Anexos, Plan SSO, Plan Calidad, Propuesta Técnica) y extraer información incremental para cada card.
+
+ESQUEMA DE SALIDA JSON:
+
+{
+  "contract_code": "AIPD-CSI001-1000-MN-0001",
+  "summary_version": "v1.0",
+  "cards": [
+    {
+      "category": "General",
+      "title": "Resumen Ejecutivo",
+      "fields": {
+        "contrato": "Estudio Hidrológico e Hidrogeológico Proyecto Dominga",
+        "mandante": "Andes Iron SpA",
+        "contratista": "Itasca Chile SpA",
+        "fecha_firma": "2025-07-21",
+        "vigencia": "28-07-2025 al 29-12-2025 (+20 días)",
+        "plazo_ejecucion_dias": 155,
+        "valor_total_uf": 4501,
+        "tipo_contrato": "Suma alzada por entregables"
+      }
+    },
+    {
+      "category": "Legal y Administrativa",
+      "title": "Datos Legales y Administradores",
+      "fields": {
+        "administrador_mandante": "Carlos Ahumada",
+        "administrador_contratista": "José Luis Delgado",
+        "email_mandante": "carlos.ahumada@andesiron.com",
+        "email_contratista": "joseluis.delgado@oneitasca.com",
+        "leyes_aplicables": [
+          "Ley N°20.393 Prevención de Delitos",
+          "Ley N°21.643 Ley Karin",
+          "IVA de cargo del mandante"
+        ]
+      }
+    },
+    {
+      "category": "Alcance Técnico",
+      "title": "Tareas Principales",
+      "fields": {
+        "tareas": [
+          "1.1 Recopilación y análisis de la información hidrológica, hidrogeológica y ambiental",
+          "1.2 Visita a terreno",
+          "2.0 Actualización del estudio hidrológico",
+          "3.0 Revisión experta del modelo hidrogeológico",
+          "4.0 Actualización y calibración de modelos de flujo y transporte",
+          "5.0 Análisis de condiciones desfavorables",
+          "6.0 Simulaciones predictivas",
+          "7.0 Asesoría técnica complementaria",
+          "8.0 Reuniones y presentaciones",
+          "9.0 Administración del contrato"
+        ],
+        "documentos_referencia": [
+          "Propuesta Técnica ITASCA-PTE-5126.003.01",
+          "Bases Técnicas AIPD-CSI001-1000-BAS-TECN-0001"
+        ]
+      }
+    },
+    {
+      "category": "Equipo y Experiencia",
+      "title": "Personal Clave",
+      "fields": {
+        "equipo": [
+          {"nombre": "José Luis Delgado", "cargo": "Administrador / Hidrogeólogo Principal"},
+          {"nombre": "Martin Brown", "cargo": "Hidrogeólogo Principal Senior"},
+          {"nombre": "Victoria Sandoval", "cargo": "Consultora Modeladora Hidrogeología"},
+          {"nombre": "Manuel Gutiérrez", "cargo": "Consultor Senior Modelador Hidrogeología"},
+          {"nombre": "Claudia Mellado", "cargo": "Especialista Caracterización Hidrogeológica"},
+          {"nombre": "Macarena Casanova", "cargo": "Especialista Hidrología y Modelamiento"}
+        ],
+        "empresa": "ITASCA CHILE SPA",
+        "experiencia_clave": [
+          "Minera Centinela (Chile)",
+          "Mina Collahuasi (Chile)",
+          "Silver Sand (Bolivia)",
+          "Sierra Gorda (Chile)",
+          "Cadia Mine (Australia)"
+        ]
+      }
+    },
+    {
+      "category": "Seguridad y Calidad",
+      "title": "Planes Adjuntos",
+      "fields": {
+        "plan_sso": "ITASCA-PLA-5126.003.01-Plan de SSO Dominga-R0.pdf",
+        "plan_calidad": "ITASCA-PLA-5126.003.02-Plan de Aseguramiento de Calidad Dominga-R0.pdf",
+        "normas_aplicadas": ["Normas ISO", "Normas Chilenas de Seguridad"]
+      }
+    },
+    {
+      "category": "Programa y Avance",
+      "title": "Cronograma y Curva S",
+      "fields": {
+        "inicio": "2025-07-28",
+        "termino": "2025-12-29",
+        "duracion_dias": 155,
+        "curva_s": {
+          "plan": "proyectada según Formulario T-5 y propuesta técnica",
+          "estado": "pendiente de actualización con EDPs"
+        }
+      }
+    }
+  ],
+  "provenance": {
+    "contract_file": "AIPD-CSI001-1000-MN-0001_Contrato_Proforma_Hidrologia-Hidrogeologia.pdf",
+    "annexes": [
+      "Anexo 10.1 Formatos Técnicos REV.0 Firmados.pdf",
+      "ITASCA-PTE-5126.003.01-Estudio hidrologia e hidrogeologia Dominga-R0.pdf",
+      "ITASCA-PLA-5126.003.01-Plan de SSO Dominga-R0.pdf",
+      "ITASCA-PLA-5126.003.02-Plan de Aseguramiento de Calidad Dominga-R0.pdf"
+    ]
+  },
+  "meta": {
+    "confidence": 0.95,
+    "source_pages": [1,2,3,4,5],
+    "last_updated": "2025-01-15T10:30:00Z"
+  }
+}
+
+REGLAS DE EXTRACCIÓN:
+1. **Detectar tipo de documento**: contract, annex, plan_sso, plan_calidad, propuesta
+2. **Extraer información según tipo**:
+   - Contract: General, Legal y Administrativa, Alcance Técnico
+   - Annex/Propuesta: Equipo y Experiencia, Alcance Técnico
+   - Plan SSO/Calidad: Seguridad y Calidad
+3. **Consolidar sin sobrescribir**: Si existe summary_json previo, hacer MERGE incremental
+4. **Provenance**: Agregar filename a provenance.contract_file o provenance.annexes
+5. **Confianza**: Calcular confidence promedio y actualizar last_updated
+
+VALIDACIÓN:
+- Si campo ya existe en summary_json, NO sobrescribir (preservar datos previos)
+- Si nuevo documento aporta datos faltantes, agregar sin eliminar existentes
+- Mantener arrays completos (agregar items, no reemplazar)
+- Actualizar meta.confidence y meta.last_updated siempre
+
+Return ONLY valid JSON (no markdown, no prose).`;
+
 // CONTRACT SUMMARY extraction prompt - OPTIMIZED for Chilean mining contracts
 const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT SUMMARY extractor for Chilean mining service agreements.
 
@@ -537,6 +683,7 @@ const EXTRACTION_PROMPTS: Record<string, string> = {
   contract_summary: CONTRACT_SUMMARY_EXTRACTION_PROMPT,
   contract_risks: CONTRACT_RISKS_EXTRACTION_PROMPT,
   contract_exec_summary: PROMPT_CONTRACT_EXEC_SUMMARY,
+  contract_executive_summary: CONTRACT_EXECUTIVE_SUMMARY_PROMPT,  // NEW: For dashboard cards
   
   contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
 

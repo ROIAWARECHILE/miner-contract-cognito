@@ -796,6 +796,7 @@ export type Database = {
           provenance: Json | null
           raw_json: Json | null
           reajustabilidad: string | null
+          summary_json: Json | null
           summary_md: string | null
           updated_at: string | null
           validity_end: string | null
@@ -816,6 +817,7 @@ export type Database = {
           provenance?: Json | null
           raw_json?: Json | null
           reajustabilidad?: string | null
+          summary_json?: Json | null
           summary_md?: string | null
           updated_at?: string | null
           validity_end?: string | null
@@ -836,6 +838,7 @@ export type Database = {
           provenance?: Json | null
           raw_json?: Json | null
           reajustabilidad?: string | null
+          summary_json?: Json | null
           summary_md?: string | null
           updated_at?: string | null
           validity_end?: string | null
