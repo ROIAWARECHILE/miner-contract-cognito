@@ -2128,9 +2128,56 @@ serve(async (req) => {
       parser: "llamaparse"
     });
 
-    // Step 4.5: Extract with OpenAI
-    const parsedText = JSON.stringify(parsedJson);
+    // Step 4.5: Extract with OpenAI - OPTIMIZED for large documents
     const systemPrompt = EXTRACTION_PROMPTS[document_type] || EXTRACTION_PROMPTS.contract;
+    
+    // Smart truncation based on document type
+    let parsedText: string;
+    const MAX_CHARS_BY_TYPE: Record<string, number> = {
+      edp: 50000,           // EDPs are usually ~5-10 pages
+      memorandum: 80000,    // Memos are ~10-20 pages
+      contract: 100000,     // Contracts ~20-40 pages
+      sso: 40000,           // SSO plans can be huge, limit to ~30 pages
+      quality: 40000,       // Quality plans can be huge, limit to ~30 pages
+      tech: 60000,          // Technical docs
+      sdi: 30000,           // SDIs are usually short
+      addendum: 40000,      // Addenda are usually short
+      annex: 60000,
+      plan_sso: 40000,
+      plan_calidad: 40000,
+      propuesta: 60000
+    };
+    
+    const maxChars = MAX_CHARS_BY_TYPE[document_type] || 80000;
+    const fullText = JSON.stringify(parsedJson);
+    
+    if (fullText.length > maxChars) {
+      console.log(`[process-document] ⚠️ Document too large (${fullText.length} chars), truncating to ${maxChars} for ${document_type}`);
+      
+      // For plans (SSO/Quality), prioritize structured sections
+      if (document_type === 'sso' || document_type === 'quality' || document_type === 'plan_sso' || document_type === 'plan_calidad') {
+        // Extract first pages (cover, objectives) + tables + last pages (responsibilities)
+        const pages = parsedJson.pages || [];
+        const firstPages = pages.slice(0, 5);  // First 5 pages
+        const lastPages = pages.slice(-3);     // Last 3 pages
+        const tables = parsedJson.tables || [];
+        
+        parsedText = JSON.stringify({
+          pages: [...firstPages, ...lastPages],
+          tables: tables.slice(0, 20),  // First 20 tables
+          metadata: {
+            total_pages: pages.length,
+            truncated: true,
+            note: "Document truncated to key sections for efficiency"
+          }
+        });
+      } else {
+        // General truncation - keep first portion
+        parsedText = fullText.substring(0, maxChars);
+      }
+    } else {
+      parsedText = fullText;
+    }
     
     let userPrompt = `Extract structured data from this document:\n\n${parsedText}`;
 
@@ -2964,6 +3011,15 @@ serve(async (req) => {
     // FASE 2: Enhanced error classification
     let errorType = 'unknown';
     let errorDetails = error?.message || String(error);
+    let jobId: string | null = null;
+    
+    // Try to extract job_id from request if available
+    try {
+      const url = new URL(req.url);
+      // Don't re-read body, it's been consumed
+    } catch (e) {
+      // Ignore
+    }
     
     // Clasificar tipos de error
     if (errorDetails.includes('LLAMAPARSE_API_KEY')) {
@@ -2975,9 +3031,19 @@ serve(async (req) => {
     } else if (error?.status === 400) {
       errorType = 'bad_request_ai';
       errorDetails = 'AI extraction failed: Invalid request format or content';
-    } else if (error?.status === 429) {
+    } else if (error?.status === 429 || errorDetails.includes('rate_limit') || errorDetails.includes('too large')) {
       errorType = 'rate_limit';
-      errorDetails = 'Rate limit exceeded, retry in 60s';
+      if (errorDetails.includes('too large') || errorDetails.includes('Requested')) {
+        // Extract actual limits from error message
+        const match = errorDetails.match(/Limit (\d+), Requested (\d+)/);
+        if (match) {
+          errorDetails = `Document too large: Requested ${match[2]} tokens but limit is ${match[1]}. Document has been truncated, please retry.`;
+        } else {
+          errorDetails = 'Document too large for processing. Please try with a smaller document or contact support.';
+        }
+      } else {
+        errorDetails = 'Rate limit exceeded, retry in 60s';
+      }
     } else if (errorDetails.includes('timeout')) {
       errorType = 'timeout';
       errorDetails = 'Processing timeout exceeded (2 hours)';
@@ -2988,37 +3054,7 @@ serve(async (req) => {
     }
     
     console.error(`[process-document] ❌ Error [${errorType}]:`, errorDetails);
-
-    // Try to update job status with error type
-    try {
-      const requestBody = await req.json();
-      const { storage_path } = requestBody;
-      
-      if (storage_path) {
-        const { data: jobs } = await supabase
-          .from("document_processing_jobs")
-          .select("id")
-          .eq("storage_path", storage_path)
-          .eq("status", "processing")
-          .limit(1);
-
-        if (jobs && jobs.length > 0) {
-          await supabase
-            .from("document_processing_jobs")
-            .update({ 
-              status: "failed", 
-              error: JSON.stringify({ type: errorType, details: errorDetails }),
-              updated_at: new Date().toISOString() 
-            })
-            .eq("storage_path", storage_path)
-            .eq("status", "processing");
-
-          console.log(`[process-document] Job status updated to failed (${errorType})`);
-        }
-      }
-    } catch (updateError) {
-      console.error("[process-document] Failed to update job status:", updateError);
-    }
+    console.error(`[process-document] Full error:`, error);
 
     return new Response(JSON.stringify({
       ok: false,
