@@ -1357,32 +1357,50 @@ async function extractContractObligations(
 }
 
 // Detect document type based on filename and content
-function detectDocumentType(filename: string, parsedText: string): string {
+function detectDocumentType(filename: string, content: string): string {
   const lower = filename.toLowerCase();
-  const textLower = parsedText.toLowerCase();
+  const contentLower = content.toLowerCase();
   
   // Contract
-  if (lower.includes('contrato') || lower.includes('proforma') || textLower.includes('comparecencia')) {
+  if (lower.includes('contrato') || lower.includes('proforma') || contentLower.includes('comparecencia')) {
     return 'contract';
+  }
+  
+  // EDPs
+  if (lower.includes('edp') || lower.includes('estado de pago')) {
+    return 'edp';
+  }
+  
+  // SSO Plans - Enhanced detection
+  if (
+    lower.includes('sso') || 
+    lower.includes('seguridad') ||
+    lower.includes('plan de sso') ||
+    lower.includes('plan_de_sso') ||
+    contentLower.includes('plan de seguridad') ||
+    contentLower.includes('prevención de riesgos') ||
+    contentLower.includes('salud ocupacional')
+  ) {
+    return 'plan_sso';
+  }
+  
+  // Quality Plans - Enhanced detection
+  if (
+    lower.includes('calidad') ||
+    lower.includes('quality') ||
+    lower.includes('aseguramiento de calidad') ||
+    lower.includes('plan_de_calidad') ||
+    contentLower.includes('plan de calidad') ||
+    contentLower.includes('control de calidad')
+  ) {
+    return 'plan_calidad';
   }
   
   // Annexes and Technical Proposals
   if (lower.includes('anexo') || lower.includes('annex') || 
       lower.includes('propuesta') || lower.includes('proposal') ||
-      lower.includes('-pte-') || textLower.includes('propuesta técnica')) {
+      lower.includes('-pte-') || contentLower.includes('propuesta técnica')) {
     return 'annex';
-  }
-  
-  // SSO Plan
-  if (lower.includes('sso') || lower.includes('plan de sso') || 
-      lower.includes('seguridad') && lower.includes('salud')) {
-    return 'plan_sso';
-  }
-  
-  // Quality Plan
-  if (lower.includes('calidad') || lower.includes('quality') ||
-      (lower.includes('plan') && textLower.includes('aseguramiento de calidad'))) {
-    return 'plan_calidad';
   }
   
   // Technical proposal/study
@@ -1606,25 +1624,78 @@ async function mergeDashboardCards(
     };
   }
   
-  // 2. Upsert merged summary
-  const { error: upsertError } = await supabase
+  // 2. Save with explicit SELECT -> UPDATE or INSERT (robust approach)
+  const { data: existingRecord, error: selectError } = await supabase
     .from('contract_summaries')
-    .upsert({
-      contract_id: contractId,
-      contract_code: contractCode,
-      summary_json: mergedSummary,
-      updated_at: new Date().toISOString()
-    }, {
-      onConflict: 'contract_code',
-      ignoreDuplicates: false
-    });
+    .select('id, summary_json')
+    .eq('contract_code', contractCode)
+    .maybeSingle();
   
-  if (upsertError) {
-    console.error("[mergeDashboardCards] Error upserting summary:", upsertError);
-    throw new Error(`Failed to upsert merged summary: ${upsertError.message}`);
+  if (selectError) {
+    console.error("[mergeDashboardCards] Error fetching existing summary:", selectError);
+    throw new Error(`Failed to fetch existing summary: ${selectError.message}`);
   }
   
-  console.log(`[mergeDashboardCards] ✅ Merged summary saved - Total cards: ${mergedSummary.cards.length}`);
+  let result;
+  
+  if (existingRecord) {
+    // UPDATE existing record
+    console.log(`[mergeDashboardCards] Updating existing summary ID: ${existingRecord.id}`);
+    result = await supabase
+      .from('contract_summaries')
+      .update({
+        summary_json: mergedSummary,
+        updated_at: new Date().toISOString()
+      })
+      .eq('contract_code', contractCode)
+      .select();
+  } else {
+    // INSERT new record
+    console.log(`[mergeDashboardCards] Inserting new summary`);
+    result = await supabase
+      .from('contract_summaries')
+      .insert({
+        contract_id: contractId,
+        contract_code: contractCode,
+        summary_json: mergedSummary,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select();
+  }
+  
+  // 3. Validate save operation
+  if (result.error) {
+    console.error("[mergeDashboardCards] ❌ FAILED to save:", result.error);
+    throw new Error(`Failed to save summary: ${result.error.message}`);
+  }
+  
+  if (!result.data || result.data.length === 0) {
+    throw new Error("Save operation returned no data");
+  }
+  
+  console.log(`[mergeDashboardCards] ✅ Summary saved successfully - ID: ${result.data[0].id}`);
+  
+  // 4. VERIFY that the JSON was saved correctly
+  const { data: verification, error: verifyError } = await supabase
+    .from('contract_summaries')
+    .select('id, summary_json')
+    .eq('contract_code', contractCode)
+    .single();
+  
+  if (verifyError || !verification?.summary_json) {
+    console.error("[mergeDashboardCards] ❌ VERIFICATION FAILED:", verifyError);
+    throw new Error("Verification failed: summary_json is null after save");
+  }
+  
+  console.log(`[mergeDashboardCards] ✅ VERIFIED: Cards count = ${verification.summary_json.cards?.length || 0}`);
+  console.log(`[mergeDashboardCards] ✅ Merge complete:`, {
+    totalCards: mergedSummary.cards.length,
+    categories: mergedSummary.cards.map((c: any) => c.category),
+    provenanceFiles: mergedSummary.provenance.annexes?.length || 0,
+    confidence: mergedSummary.meta.confidence,
+    savedAt: new Date().toISOString()
+  });
 }
 
 // Main extraction orchestrator with parallel execution

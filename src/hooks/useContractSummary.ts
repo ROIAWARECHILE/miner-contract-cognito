@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useEffect } from "react";
 
 export interface SummaryCard {
   category: string;
@@ -29,6 +30,41 @@ export interface ContractSummary {
 }
 
 export const useContractSummary = (contractCode: string) => {
+  const queryClient = useQueryClient();
+
+  // Sprint 3: Realtime subscription for automatic updates
+  useEffect(() => {
+    if (!contractCode) return;
+
+    console.log(`📡 [useContractSummary] Setting up realtime for: ${contractCode}`);
+
+    const channel = supabase
+      .channel(`contract_summary:${contractCode}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'contract_summaries',
+          filter: `contract_code=eq.${contractCode}`
+        },
+        (payload) => {
+          console.log('📡 [useContractSummary] Realtime update received:', payload);
+          
+          // Invalidate query to trigger refetch
+          queryClient.invalidateQueries({
+            queryKey: ['contract-summary', contractCode]
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log(`📡 [useContractSummary] Cleaning up realtime for: ${contractCode}`);
+      channel.unsubscribe();
+    };
+  }, [contractCode, queryClient]);
+
   return useQuery({
     queryKey: ['contract-summary', contractCode],
     queryFn: async () => {
@@ -48,5 +84,7 @@ export const useContractSummary = (contractCode: string) => {
       return data as unknown as ContractSummary;
     },
     enabled: !!contractCode,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 };

@@ -1,9 +1,13 @@
-import { RefreshCw, FileText, AlertCircle } from "lucide-react";
+import { RefreshCw, FileText, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { ContractSummaryCard } from "./ContractSummaryCard";
 import { useContractSummary } from "@/hooks/useContractSummary";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 interface ContractExecutiveSummaryProps {
   contractCode: string;
@@ -14,7 +18,13 @@ export const ContractExecutiveSummary = ({
   contractCode, 
   onRefresh 
 }: ContractExecutiveSummaryProps) => {
-  const { data: summary, isLoading, error } = useContractSummary(contractCode);
+  const queryClient = useQueryClient();
+  const { data: summary, isLoading, error, refetch } = useContractSummary(contractCode);
+
+  const handleManualRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['contract-summary', contractCode] });
+    refetch();
+  };
 
   if (isLoading) {
     return (
@@ -61,26 +71,45 @@ export const ContractExecutiveSummary = ({
 
   return (
     <div className="space-y-6">
-      {/* Header con metadata */}
+      {/* Header con metadata y estado */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Resumen Ejecutivo</h2>
-          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold">Resumen Ejecutivo</h2>
+            {summary && (
+              <Badge variant="default" className="gap-1">
+                <CheckCircle className="h-3 w-3" />
+                {cards.length} {cards.length === 1 ? 'tarjeta' : 'tarjetas'}
+              </Badge>
+            )}
+            {summary?.updated_at && (
+              <Badge variant="outline" className="gap-1">
+                <Clock className="h-3 w-3" />
+                {formatDistanceToNow(new Date(summary.updated_at), { 
+                  addSuffix: true, 
+                  locale: es 
+                })}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <span>Versión: {summary.summary_json?.summary_version || 'v1.0'}</span>
             {meta.confidence && (
               <span>Confianza: {Math.round(meta.confidence * 100)}%</span>
             )}
-            {meta.last_updated && (
-              <span>Actualizado: {new Date(meta.last_updated).toLocaleDateString('es-CL')}</span>
-            )}
           </div>
         </div>
-        {onRefresh && (
-          <Button variant="outline" onClick={onRefresh} size="sm">
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleManualRefresh} size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
-            Actualizar con nuevos documentos
+            Actualizar
           </Button>
-        )}
+          {onRefresh && (
+            <Button variant="default" onClick={onRefresh} size="sm">
+              Reprocesar documentos
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Fuentes de información */}
