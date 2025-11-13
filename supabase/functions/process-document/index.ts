@@ -17,9 +17,16 @@ const SummaryCardSchema = z.object({
     "Alcance Técnico",
     "Equipo y Experiencia",
     "Seguridad y Calidad",
-    "Programa y Avance"
+    "Programa y Avance",
+    "KPIs",
+    "Responsables",
+    "Cumplimiento",
+    "Controles Críticos",
+    "Emergencias",
+    "Gestión"
   ]),
   title: z.string().min(1),
+  badges: z.array(z.string()).optional(),
   fields: SummaryCardFieldSchema
 });
 
@@ -37,7 +44,7 @@ const MetaSchema = z.object({
 const ContractExecutiveSummarySchema = z.object({
   contract_code: z.string().min(1),
   summary_version: z.string().default("v1.0"),
-  cards: z.array(SummaryCardSchema).min(1).max(6),
+  cards: z.array(SummaryCardSchema).min(1).max(12),
   provenance: ProvenanceSchema,
   meta: MetaSchema
 });
@@ -316,6 +323,140 @@ VALIDACIÓN FINAL:
 - Si no puedes extraer contract_code del documento, usa el que te proporcionan como contexto
 
 Return ONLY the JSON object (no markdown, no prose, no \`\`\`json blocks).`;
+
+// SSO PLAN SPECIALIZED EXTRACTOR - Generates 7 actionable cards
+const SSO_PLAN_EXTRACTOR_PROMPT = `You are ContractOS's Safety & Health Plan extractor for mining contracts (document_type = "sso").
+Your goal is to turn a Plan de Seguridad y Salud Ocupacional (SSO) PDF into a set of rich, useful CARDS for the contract dashboard. Be precise, non-hallucinatory, and include provenance.
+
+INPUTS (runtime):
+- parsed_json: LlamaParse JSON (text + tables) of the SSO plan
+- contract_code: string (e.g., "AIPD-CSI001-1000-MN-0001")
+
+OUTPUT: ONE JSON OBJECT (no prose), following the schema below.
+If a field is unknown, use null or [] and add its key to meta.missing.
+
+SCHEMA:
+{
+  "contract_code": "<string>",
+  "summary_version": "v1.0",
+  "cards": [
+    {
+      "category": "Seguridad y Calidad",
+      "title": "Plan de Seguridad y Salud Ocupacional",
+      "badges": ["SSO", "<version or null>"],
+      "fields": {
+        "doc_code": "<string|null>",
+        "version": "<string|null>",
+        "issued_date": "<YYYY-MM-DD|null>",
+        "prepared_by": "<string|null>",
+        "for_client": "<string|null>",
+        "alcance": "<string|null>",
+        "objetivo": "<string|null>",
+        "ubicacion": "<string|null>",
+        "vigencia": "<string|null>"
+      }
+    },
+    {
+      "category": "KPIs",
+      "title": "Metas e Indicadores SSO",
+      "badges": ["Objetivos"],
+      "fields": {
+        "kpis": [
+          { "name": "Tasa de frecuencia", "target": "<string|null>", "rule": "<string|null>" },
+          { "name": "Tasa de gravedad",   "target": "<string|null>", "rule": "<string|null>" },
+          { "name": "Cumplimiento legal", "target": "<string|null>", "rule": "<string|null>" },
+          { "name": "Auditorías",         "target": "<string|null>", "rule": "<string|null>" }
+        ],
+        "observaciones": "<string|null>"
+      }
+    },
+    {
+      "category": "Responsables",
+      "title": "Equipo SSO y Contactos",
+      "badges": ["Roles"],
+      "fields": {
+        "roles": [
+          { "role": "Gerente General",               "name": "<string|null>", "email": "<string|null>" },
+          { "role": "Administrador del Contrato",    "name": "<string|null>", "email": "<string|null>" },
+          { "role": "Experto/Prevencionista",        "name": "<string|null>", "email": "<string|null>" },
+          { "role": "Líder de Proyecto",             "name": "<string|null>", "email": "<string|null>" }
+        ],
+        "responsabilidades_clave": [
+          "<string>", "<string>", "<string>"
+        ]
+      }
+    },
+    {
+      "category": "Cumplimiento",
+      "title": "Normativa y Exigencias",
+      "badges": ["Legal"],
+      "fields": {
+        "leyes_y_decretos": ["<string>", "..."],
+        "protocolos": ["<string>", "..."],
+        "requisitos_contractuales": ["<string>", "..."]
+      }
+    },
+    {
+      "category": "Controles Críticos",
+      "title": "Riesgos y Medidas de Control",
+      "badges": ["Riesgos"],
+      "fields": {
+        "metodologia": "<string|null>",
+        "riesgos_clave": [
+          { "riesgo": "<string>", "control": "<string>", "criticidad": "<alta|media|baja|null>" }
+        ],
+        "epp_obligatorio": ["<string>", "..."]
+      }
+    },
+    {
+      "category": "Emergencias",
+      "title": "Preparación y Respuesta",
+      "badges": ["Emergencias"],
+      "fields": {
+        "escenarios": ["<incendio>", "<derrame>", "<sismo>", "..."],
+        "procedimientos": ["<string>", "..."],
+        "contactos_criticos": [
+          { "name": "<string|null>", "cargo": "<string|null>", "telefono": "<string|null>" }
+        ],
+        "puntos_reunion": ["<string>", "..."]
+      }
+    },
+    {
+      "category": "Gestión",
+      "title": "Capacitación y Auditorías",
+      "badges": ["Planificación"],
+      "fields": {
+        "capacitaciones": [
+          { "tema": "<string>", "frecuencia": "<string|null>", "obligatoria": true }
+        ],
+        "auditorias": [
+          { "tipo": "<interna|externa>", "frecuencia": "<string|null>", "criterio": "<string|null>" }
+        ],
+        "registros_obligatorios": ["<Matriz de riesgos>", "<Charlas>", "<Acciones Correctivas>", "..."]
+      }
+    }
+  ],
+  "provenance": {
+    "contract_file": null,
+    "annexes": ["<filename>"]
+  },
+  "meta": {
+    "confidence": 0.0,
+    "source_pages": [],
+    "missing": ["<field>", "..."],
+    "notes": ["<string>", "..."],
+    "last_updated": "<ISO timestamp>"
+  }
+}
+
+RULES:
+- Extract concrete, useful content. Short sentences; no fluff.
+- Prefer lists (arrays) for KPIs, roles, riesgos, protocolos.
+- If an item is not in the document, return null/[] and list the key in meta.missing.
+- Dates must be ISO (YYYY-MM-DD) when explicit; if only month/year, set day=01 and add note.
+- Do not hallucinate emails or phones: only return if present in the plan.
+- confidence ≈ (filled_fields / total_expected_fields), rounded to 2 decimals.
+- Return ONLY the JSON object. No extra text, no markdown blocks.`;
 
 // CONTRACT SUMMARY extraction prompt - OPTIMIZED for Chilean mining contracts
 const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT SUMMARY extractor for Chilean mining service agreements.
@@ -1471,6 +1612,11 @@ async function extractDashboardCards(
     pages: parsedJson.pages?.length || 0
   };
   
+  // 🔥 ROUTING: Use specialized prompt for SSO documents
+  const systemPrompt = (detectedType === 'plan_sso' || detectedType === 'sso')
+    ? SSO_PLAN_EXTRACTOR_PROMPT
+    : CONTRACT_EXECUTIVE_SUMMARY_PROMPT;
+  
   const userPrompt = `Document type: ${detectedType}
 Filename: ${filename}
 Contract code: ${contractCode}
@@ -1485,12 +1631,14 @@ Extract information relevant to this document type and generate cards accordingl
     temperature: 0,
     max_tokens: 6000,
     messages: [
-      { role: "system", content: CONTRACT_EXECUTIVE_SUMMARY_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ]
   };
   
+  console.log(`[extractDashboardCards] Using prompt: ${systemPrompt === SSO_PLAN_EXTRACTOR_PROMPT ? 'SSO_SPECIALIZED' : 'GENERIC'}`);
   console.log("[extractDashboardCards] Calling GPT-4o for dashboard cards extraction...");
+  
   const response = await callOpenAIWithRetry(payload, openaiKey);
   let content = response.choices[0].message.content;
   

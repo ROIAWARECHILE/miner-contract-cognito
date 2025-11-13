@@ -159,6 +159,7 @@ export const ContractExecutiveSummary = ({
             key={idx}
             category={card.category}
             title={card.title}
+            badges={card.badges}
             fields={card.fields}
           />
         ))}
