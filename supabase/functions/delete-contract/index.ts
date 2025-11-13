@@ -37,6 +37,11 @@ serve(async (req) => {
       throw new Error(`Database deletion failed: ${dbError.message}`);
     }
 
+    if (!deleteResult) {
+      console.error('❌ delete_contract_cascade retornó null');
+      throw new Error('Database deletion returned null - contract may not exist or function failed');
+    }
+
     console.log('✅ Registros de DB eliminados:', deleteResult);
 
     // 2. Eliminar archivos de Storage
