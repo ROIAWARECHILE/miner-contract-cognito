@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.daily-contract-review]
 verify_jwt = false
+
+[functions.check-contract-summary]
+verify_jwt = false
+
+[functions.reanalyze-contract-summary]
+verify_jwt = false

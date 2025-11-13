@@ -1,10 +1,46 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Zod schemas for executive summary validation
+const SummaryCardFieldSchema = z.record(z.any());
+
+const SummaryCardSchema = z.object({
+  category: z.enum([
+    "General",
+    "Legal y Administrativa", 
+    "Alcance Técnico",
+    "Equipo y Experiencia",
+    "Seguridad y Calidad",
+    "Programa y Avance"
+  ]),
+  title: z.string().min(1),
+  fields: SummaryCardFieldSchema
+});
+
+const ProvenanceSchema = z.object({
+  contract_file: z.string().optional(),
+  annexes: z.array(z.string()).optional()
+});
+
+const MetaSchema = z.object({
+  confidence: z.number().min(0).max(1).optional(),
+  source_pages: z.array(z.number()).optional(),
+  last_updated: z.string().optional()
+});
+
+const ContractExecutiveSummarySchema = z.object({
+  contract_code: z.string().min(1),
+  summary_version: z.string().default("v1.0"),
+  cards: z.array(SummaryCardSchema).min(1).max(6),
+  provenance: ProvenanceSchema,
+  meta: MetaSchema
+});
 
 // EDP extraction prompt with FULL validation and task detection
 const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor specialized in Chilean mining payment statements.
@@ -202,143 +238,84 @@ Tu misión:
 1. **Extraer entidades y hechos clave** del contrato y sus anexos.
 2. **Consolidar y complementar** la información existente en Supabase sin sobrescribir campos previos.
 3. **Generar un resumen ejecutivo estructurado** en formato JSON, con tarjetas (cards) temáticas, listo para renderizar en el dashboard del contrato.
-4. **Reconocer documentos relacionados** (Contrato, Anexos, Plan SSO, Plan Calidad, Propuesta Técnica) y extraer información incremental para cada card.
+4. **Guardar los datos procesados** en la tabla contract_summaries y actualizar las tablas relacionadas.
+5. **Reconocer documentos relacionados** (Contrato, Anexos, Plan SSO, Plan Calidad, Propuesta Técnica) y extraer información incremental para cada card.
+
+REGLAS DE EXTRACCIÓN POR TIPO DE DOCUMENTO:
+
+**CONTRATO PROFORMA:**
+- Extrae: General (datos básicos del contrato), Legal y Administrativa (administradores, leyes), Programa y Avance (fechas, duración)
+
+**ANEXOS TÉCNICOS / PROPUESTA TÉCNICA:**
+- Extrae: Alcance Técnico (tareas, documentos de referencia), Equipo y Experiencia (personal clave, empresa, experiencia)
+
+**PLAN SSO:**
+- Extrae: Seguridad y Calidad → plan_sso (nombre del archivo), normas_aplicadas (normas de seguridad mencionadas)
+
+**PLAN DE CALIDAD:**
+- Extrae: Seguridad y Calidad → plan_calidad (nombre del archivo), normas_aplicadas (normas ISO, certificaciones)
 
 ESQUEMA DE SALIDA JSON:
 
 {
-  "contract_code": "AIPD-CSI001-1000-MN-0001",
+  "contract_code": "<extraer del documento o usar el proporcionado>",
   "summary_version": "v1.0",
   "cards": [
     {
-      "category": "General",
-      "title": "Resumen Ejecutivo",
+      "category": "General|Legal y Administrativa|Alcance Técnico|Equipo y Experiencia|Seguridad y Calidad|Programa y Avance",
+      "title": "<título descriptivo>",
       "fields": {
-        "contrato": "Estudio Hidrológico e Hidrogeológico Proyecto Dominga",
-        "mandante": "Andes Iron SpA",
-        "contratista": "Itasca Chile SpA",
-        "fecha_firma": "2025-07-21",
-        "vigencia": "28-07-2025 al 29-12-2025 (+20 días)",
-        "plazo_ejecucion_dias": 155,
-        "valor_total_uf": 4501,
-        "tipo_contrato": "Suma alzada por entregables"
-      }
-    },
-    {
-      "category": "Legal y Administrativa",
-      "title": "Datos Legales y Administradores",
-      "fields": {
-        "administrador_mandante": "Carlos Ahumada",
-        "administrador_contratista": "José Luis Delgado",
-        "email_mandante": "carlos.ahumada@andesiron.com",
-        "email_contratista": "joseluis.delgado@oneitasca.com",
-        "leyes_aplicables": [
-          "Ley N°20.393 Prevención de Delitos",
-          "Ley N°21.643 Ley Karin",
-          "IVA de cargo del mandante"
-        ]
-      }
-    },
-    {
-      "category": "Alcance Técnico",
-      "title": "Tareas Principales",
-      "fields": {
-        "tareas": [
-          "1.1 Recopilación y análisis de la información hidrológica, hidrogeológica y ambiental",
-          "1.2 Visita a terreno",
-          "2.0 Actualización del estudio hidrológico",
-          "3.0 Revisión experta del modelo hidrogeológico",
-          "4.0 Actualización y calibración de modelos de flujo y transporte",
-          "5.0 Análisis de condiciones desfavorables",
-          "6.0 Simulaciones predictivas",
-          "7.0 Asesoría técnica complementaria",
-          "8.0 Reuniones y presentaciones",
-          "9.0 Administración del contrato"
-        ],
-        "documentos_referencia": [
-          "Propuesta Técnica ITASCA-PTE-5126.003.01",
-          "Bases Técnicas AIPD-CSI001-1000-BAS-TECN-0001"
-        ]
-      }
-    },
-    {
-      "category": "Equipo y Experiencia",
-      "title": "Personal Clave",
-      "fields": {
-        "equipo": [
-          {"nombre": "José Luis Delgado", "cargo": "Administrador / Hidrogeólogo Principal"},
-          {"nombre": "Martin Brown", "cargo": "Hidrogeólogo Principal Senior"},
-          {"nombre": "Victoria Sandoval", "cargo": "Consultora Modeladora Hidrogeología"},
-          {"nombre": "Manuel Gutiérrez", "cargo": "Consultor Senior Modelador Hidrogeología"},
-          {"nombre": "Claudia Mellado", "cargo": "Especialista Caracterización Hidrogeológica"},
-          {"nombre": "Macarena Casanova", "cargo": "Especialista Hidrología y Modelamiento"}
-        ],
-        "empresa": "ITASCA CHILE SPA",
-        "experiencia_clave": [
-          "Minera Centinela (Chile)",
-          "Mina Collahuasi (Chile)",
-          "Silver Sand (Bolivia)",
-          "Sierra Gorda (Chile)",
-          "Cadia Mine (Australia)"
-        ]
-      }
-    },
-    {
-      "category": "Seguridad y Calidad",
-      "title": "Planes Adjuntos",
-      "fields": {
-        "plan_sso": "ITASCA-PLA-5126.003.01-Plan de SSO Dominga-R0.pdf",
-        "plan_calidad": "ITASCA-PLA-5126.003.02-Plan de Aseguramiento de Calidad Dominga-R0.pdf",
-        "normas_aplicadas": ["Normas ISO", "Normas Chilenas de Seguridad"]
-      }
-    },
-    {
-      "category": "Programa y Avance",
-      "title": "Cronograma y Curva S",
-      "fields": {
-        "inicio": "2025-07-28",
-        "termino": "2025-12-29",
-        "duracion_dias": 155,
-        "curva_s": {
-          "plan": "proyectada según Formulario T-5 y propuesta técnica",
-          "estado": "pendiente de actualización con EDPs"
-        }
+        "<key>": "<value>",
+        // Usar nombres de campos en español, snake_case
+        // Ejemplos: contrato, mandante, fecha_firma, valor_total_uf, administrador_mandante, etc.
       }
     }
   ],
   "provenance": {
-    "contract_file": "AIPD-CSI001-1000-MN-0001_Contrato_Proforma_Hidrologia-Hidrogeologia.pdf",
-    "annexes": [
-      "Anexo 10.1 Formatos Técnicos REV.0 Firmados.pdf",
-      "ITASCA-PTE-5126.003.01-Estudio hidrologia e hidrogeologia Dominga-R0.pdf",
-      "ITASCA-PLA-5126.003.01-Plan de SSO Dominga-R0.pdf",
-      "ITASCA-PLA-5126.003.02-Plan de Aseguramiento de Calidad Dominga-R0.pdf"
-    ]
+    "contract_file": "<filename si es contrato principal>",
+    "annexes": ["<array de filenames de anexos/planes procesados>"]
   },
   "meta": {
-    "confidence": 0.95,
-    "source_pages": [1,2,3,4,5],
-    "last_updated": "2025-01-15T10:30:00Z"
+    "confidence": <0.0-1.0>,  // Calidad de la extracción
+    "source_pages": [<páginas procesadas>],
+    "last_updated": "<timestamp>"
   }
 }
 
-REGLAS DE EXTRACCIÓN:
-1. **Detectar tipo de documento**: contract, annex, plan_sso, plan_calidad, propuesta
-2. **Extraer información según tipo**:
-   - Contract: General, Legal y Administrativa, Alcance Técnico
-   - Annex/Propuesta: Equipo y Experiencia, Alcance Técnico
-   - Plan SSO/Calidad: Seguridad y Calidad
-3. **Consolidar sin sobrescribir**: Si existe summary_json previo, hacer MERGE incremental
-4. **Provenance**: Agregar filename a provenance.contract_file o provenance.annexes
-5. **Confianza**: Calcular confidence promedio y actualizar last_updated
+REGLAS DE CALIDAD:
 
-VALIDACIÓN:
-- Si campo ya existe en summary_json, NO sobrescribir (preservar datos previos)
-- Si nuevo documento aporta datos faltantes, agregar sin eliminar existentes
-- Mantener arrays completos (agregar items, no reemplazar)
-- Actualizar meta.confidence y meta.last_updated siempre
+1. **Nombres de campos consistentes:**
+   - Usar siempre los mismos nombres (contrato, mandante, contratista, valor_total_uf, etc.)
+   - Formato: snake_case en español
 
-Return ONLY valid JSON (no markdown, no prose).`;
+2. **Valores estructurados:**
+   - Arrays para listas (tareas, equipo, experiencia_clave, leyes_aplicables)
+   - Objetos para entidades complejas (miembros del equipo con {nombre, cargo})
+   - Números sin separadores de miles (4501, no "4.501")
+   - Fechas en formato ISO cuando sea posible, o formato legible ("28-07-2025 al 29-12-2025")
+
+3. **Completitud incremental:**
+   - NUNCA sobrescribir campos existentes
+   - Solo agregar nuevos campos o complementar arrays
+   - Si un campo ya tiene valor en DB, NO lo reemplaces a menos que el nuevo documento sea más autoritativo
+
+4. **Confianza (confidence):**
+   - 0.95-1.0: Información extraída directamente del documento sin ambigüedad
+   - 0.80-0.94: Información inferida con alta certeza
+   - 0.60-0.79: Información parcial o con ambigüedades menores
+   - <0.60: Información faltante o muy ambigua (requiere revisión manual)
+
+5. **Provenance tracking:**
+   - Siempre registra el filename en contract_file o annexes según corresponda
+   - Registra las páginas de donde se extrajo información crítica
+
+VALIDACIÓN FINAL:
+- Mínimo 1 card, máximo 6 cards
+- Cada card debe tener al menos 1 field
+- contract_code es OBLIGATORIO
+- Si no puedes extraer contract_code del documento, usa el que te proporcionan como contexto
+
+Return ONLY the JSON object (no markdown, no prose, no \`\`\`json blocks).`;
 
 // CONTRACT SUMMARY extraction prompt - OPTIMIZED for Chilean mining contracts
 const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT SUMMARY extractor for Chilean mining service agreements.
@@ -1361,49 +1338,72 @@ function detectDocumentType(filename: string, content: string): string {
   const lower = filename.toLowerCase();
   const contentLower = content.toLowerCase();
   
-  // Contract
-  if (lower.includes('contrato') || lower.includes('proforma') || contentLower.includes('comparecencia')) {
-    return 'contract';
-  }
-  
-  // EDPs
-  if (lower.includes('edp') || lower.includes('estado de pago')) {
-    return 'edp';
-  }
-  
-  // SSO Plans - Enhanced detection
+  // SSO Plans - Prioridad alta
   if (
     lower.includes('sso') || 
     lower.includes('seguridad') ||
     lower.includes('plan de sso') ||
-    lower.includes('plan_de_sso') ||
-    contentLower.includes('plan de seguridad') ||
-    contentLower.includes('prevención de riesgos') ||
-    contentLower.includes('salud ocupacional')
+    lower.match(/pla-.*sso/i) ||  // Pattern: ITASCA-PLA-xxx-Plan de SSO
+    contentLower.includes('plan de seguridad y salud ocupacional') ||
+    contentLower.includes('prevención de riesgos')
   ) {
     return 'plan_sso';
   }
   
-  // Quality Plans - Enhanced detection
+  // Quality Plans - Prioridad alta
   if (
     lower.includes('calidad') ||
     lower.includes('quality') ||
     lower.includes('aseguramiento de calidad') ||
-    lower.includes('plan_de_calidad') ||
-    contentLower.includes('plan de calidad') ||
-    contentLower.includes('control de calidad')
+    lower.match(/pla-.*calidad/i) ||  // Pattern: ITASCA-PLA-xxx-Calidad
+    contentLower.includes('plan de aseguramiento de calidad') ||
+    contentLower.includes('plan de calidad')
   ) {
     return 'plan_calidad';
   }
   
-  // Annexes and Technical Proposals
-  if (lower.includes('anexo') || lower.includes('annex') || 
-      lower.includes('propuesta') || lower.includes('proposal') ||
-      lower.includes('-pte-') || contentLower.includes('propuesta técnica')) {
+  // Contract - Prioridad muy alta
+  if (
+    lower.includes('contrato') || 
+    lower.includes('contract') ||
+    lower.includes('proforma') ||
+    contentLower.includes('contrato de prestación de servicios') ||
+    contentLower.includes('entre') && contentLower.includes('mandante') && contentLower.includes('contratista')
+  ) {
+    return 'contract';
+  }
+  
+  // Technical Proposal - Alta prioridad
+  if (
+    lower.includes('propuesta') || 
+    lower.includes('proposal') ||
+    lower.match(/pte-.*estudio/i) ||  // Pattern: ITASCA-PTE-xxx-Estudio
+    contentLower.includes('propuesta técnica') ||
+    contentLower.includes('oferta técnica')
+  ) {
+    return 'propuesta';
+  }
+  
+  // Annex - Media prioridad
+  if (
+    lower.includes('anexo') || 
+    lower.includes('annex') ||
+    lower.includes('appendix')
+  ) {
     return 'annex';
   }
   
-  // Technical proposal/study
+  // EDP - Prioridad específica
+  if (lower.includes('edp') || lower.includes('estado de pago')) {
+    return 'edp';
+  }
+  
+  // Memorandum - Prioridad específica
+  if (lower.includes('memo') || lower.includes('minuta')) {
+    return 'memorandum';
+  }
+  
+  // Default para estudios técnicos generales
   if (lower.includes('estudio') || lower.includes('study') || 
       lower.includes('técnico') || lower.includes('technical')) {
     return 'propuesta';
@@ -1500,8 +1500,16 @@ Extract information relevant to this document type and generate cards accordingl
   const data = JSON.parse(content);
   const tokens = response.usage?.total_tokens || 0;
   
-  console.log(`[extractDashboardCards] ✅ Cards extracted - Tokens: ${tokens}, Cards: ${data.cards?.length || 0}`);
-  return { data, tokens };
+  // Validate schema with Zod
+  try {
+    const validated = ContractExecutiveSummarySchema.parse(data);
+    console.log(`[extractDashboardCards] ✅ Schema validation passed`);
+    console.log(`[extractDashboardCards] ✅ Cards extracted - Tokens: ${tokens}, Cards: ${validated.cards?.length || 0}`);
+    return { data: validated, tokens };
+  } catch (error) {
+    console.error(`[extractDashboardCards] ❌ Schema validation failed:`, error);
+    throw new Error(`Invalid executive summary schema: ${(error as Error).message}`);
+  }
 }
 
 // NEW: Merge incremental data into contract_summaries.summary_json
@@ -1696,6 +1704,24 @@ async function mergeDashboardCards(
     confidence: mergedSummary.meta.confidence,
     savedAt: new Date().toISOString()
   });
+  
+  // 5. Log to audit table
+  const newCategories = mergedSummary.cards.map((c: any) => c.category);
+  const oldCategories = existing?.summary_json?.cards?.map((c: any) => c.category) || [];
+  const addedCategories = newCategories.filter((c: string) => !oldCategories.includes(c));
+  
+  await supabase.from('contract_summaries_audit').insert({
+    contract_code: contractCode,
+    operation: existing ? 'merge' : 'insert',
+    old_cards_count: oldCategories.length,
+    new_cards_count: mergedSummary.cards.length,
+    cards_added: addedCategories,
+    cards_updated: newCategories.filter((c: string) => oldCategories.includes(c)),
+    triggered_by: filename,
+    confidence_score: mergedSummary.meta?.confidence || null
+  });
+  
+  console.log(`[mergeDashboardCards] 📋 Audit log created`);
 }
 
 // Main extraction orchestrator with parallel execution
