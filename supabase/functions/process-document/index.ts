@@ -32,10 +32,23 @@ const SummaryCardSchema = z.object({
   fields: SummaryCardFieldSchema
 });
 
-const ProvenanceSchema = z.object({
-  contract_file: z.string().nullable().optional(),
-  annexes: z.array(z.string()).nullable().optional()
+const DocInfoSchema = z.object({
+  title: z.string().nullable().optional(),
+  doc_code: z.string().nullable().optional(),
+  version: z.string().nullable().optional(),
+  issued_date: z.string().nullable().optional(),
+  prepared_by: z.string().nullable().optional(),
+  for_client: z.string().nullable().optional()
 });
+
+const ProvenanceItemSchema = z.object({
+  card: z.string(),
+  field: z.string(),
+  page: z.number(),
+  excerpt: z.string()
+});
+
+const ProvenanceSchema = z.array(ProvenanceItemSchema).optional();
 
 const MetaSchema = z.object({
   confidence: z.number().min(0).max(1).nullable().optional(),
@@ -47,6 +60,7 @@ const MetaSchema = z.object({
 
 const ContractExecutiveSummarySchema = z.object({
   contract_code: z.string().min(1),
+  doc_info: DocInfoSchema.optional(),
   summary_version: z.string().default("v1.0"),
   cards: z.array(SummaryCardSchema).min(1).max(12),
   provenance: ProvenanceSchema,
@@ -328,7 +342,7 @@ VALIDACIÓN FINAL:
 
 Return ONLY the JSON object (no markdown, no prose, no \`\`\`json blocks).`;
 
-// SSO PLAN SPECIALIZED EXTRACTOR - Generates 7 actionable cards
+// SSO PLAN SPECIALIZED EXTRACTOR - Generates 7 actionable cards with provenance
 const SSO_PLAN_EXTRACTOR_PROMPT = `You are ContractOS's Safety & Health Plan extractor for mining contracts (document_type = "sso").
 Your goal is to turn a Plan de Seguridad y Salud Ocupacional (SSO) PDF into a set of rich, useful CARDS for the contract dashboard. Be precise, non-hallucinatory, and include provenance.
 
@@ -339,25 +353,28 @@ INPUTS (runtime):
 OUTPUT: ONE JSON OBJECT (no prose), following the schema below.
 If a field is unknown, use null or [] and add its key to meta.missing.
 
-SCHEMA:
+SCHEMA
 {
   "contract_code": "<string>",
-  "summary_version": "v1.0",
+  "doc_info": {
+    "title": "<string|null>",
+    "doc_code": "<string|null>",                // e.g., ITASCA-PLA-5126.003.01
+    "version": "<string|null>",                 // e.g., R0
+    "issued_date": "<YYYY-MM-DD|null>",
+    "prepared_by": "<string|null>",
+    "for_client": "<string|null>"
+  },
+
   "cards": [
     {
       "category": "Seguridad y Calidad",
       "title": "Plan de Seguridad y Salud Ocupacional",
       "badges": ["SSO", "<version or null>"],
       "fields": {
-        "doc_code": "<string|null>",
-        "version": "<string|null>",
-        "issued_date": "<YYYY-MM-DD|null>",
-        "prepared_by": "<string|null>",
-        "for_client": "<string|null>",
-        "alcance": "<string|null>",
-        "objetivo": "<string|null>",
-        "ubicacion": "<string|null>",
-        "vigencia": "<string|null>"
+        "alcance": "<string|null>",             // 1–3 líneas: a qué contrato/actividades aplica
+        "objetivo": "<string|null>",            // 1–2 líneas
+        "ubicacion": "<string|null>",           // faena/instalaciones/zonas
+        "vigencia": "<string|null>"             // rango de fechas o regla de actualización
       }
     },
     {
@@ -371,7 +388,7 @@ SCHEMA:
           { "name": "Cumplimiento legal", "target": "<string|null>", "rule": "<string|null>" },
           { "name": "Auditorías",         "target": "<string|null>", "rule": "<string|null>" }
         ],
-        "observaciones": "<string|null>"
+        "observaciones": "<string|null>"        // breve comentario si el plan trae criterios adicionales
       }
     },
     {
@@ -395,9 +412,9 @@ SCHEMA:
       "title": "Normativa y Exigencias",
       "badges": ["Legal"],
       "fields": {
-        "leyes_y_decretos": ["<string>", "..."],
-        "protocolos": ["<string>", "..."],
-        "requisitos_contractuales": ["<string>", "..."]
+        "leyes_y_decretos": ["<string>", "..."],     // Ley 16.744, DS 40, DS 54, DS 594, etc.
+        "protocolos": ["<string>", "..."],           // PREXOR, TMERT, Psicosocial, etc.
+        "requisitos_contractuales": ["<string>", "..."] // reportes/planes exigidos por el cliente
       }
     },
     {
@@ -405,7 +422,7 @@ SCHEMA:
       "title": "Riesgos y Medidas de Control",
       "badges": ["Riesgos"],
       "fields": {
-        "metodologia": "<string|null>",
+        "metodologia": "<string|null>",              // WRAC/ART/BowTie u otra
         "riesgos_clave": [
           { "riesgo": "<string>", "control": "<string>", "criticidad": "<alta|media|baja|null>" }
         ],
@@ -418,7 +435,7 @@ SCHEMA:
       "badges": ["Emergencias"],
       "fields": {
         "escenarios": ["<incendio>", "<derrame>", "<sismo>", "..."],
-        "procedimientos": ["<string>", "..."],
+        "procedimientos": ["<string>", "..."],       // nombre corto del procedimiento/plan
         "contactos_criticos": [
           { "name": "<string|null>", "cargo": "<string|null>", "telefono": "<string|null>" }
         ],
@@ -440,27 +457,26 @@ SCHEMA:
       }
     }
   ],
-  "provenance": {
-    "contract_file": null,
-    "annexes": ["<filename>"]
-  },
+
+  "provenance": [
+    { "card": "<title>", "field": "<field path>", "page": 5, "excerpt": "<<=240 chars from source>" }
+  ],
   "meta": {
-    "confidence": 0.0,
-    "source_pages": [],
+    "confidence": 0.0,                  // compute realistically from coverage (0–1)
     "missing": ["<field>", "..."],
-    "notes": ["<string>", "..."],
-    "last_updated": "<ISO timestamp>"
+    "notes": ["<string>", "..."]
   }
 }
 
-RULES:
+RULES
 - Extract concrete, useful content. Short sentences; no fluff.
 - Prefer lists (arrays) for KPIs, roles, riesgos, protocolos.
 - If an item is not in the document, return null/[] and list the key in meta.missing.
 - Dates must be ISO (YYYY-MM-DD) when explicit; if only month/year, set day=01 and add note.
 - Do not hallucinate emails or phones: only return if present in the plan.
+- Add provenance for at least 8 important fields (page + short excerpt).
 - confidence ≈ (filled_fields / total_expected_fields), rounded to 2 decimals.
-- Return ONLY the JSON object. No extra text, no markdown blocks.`;
+- Return ONLY the JSON object. No extra text.`;
 
 // CONTRACT SUMMARY extraction prompt - OPTIMIZED for Chilean mining contracts
 const CONTRACT_SUMMARY_EXTRACTION_PROMPT = `You are ContractOS — CONTRACT SUMMARY extractor for Chilean mining service agreements.
