@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface ContractExecutiveSummaryProps {
   contractCode: string;
@@ -24,6 +26,29 @@ export const ContractExecutiveSummary = ({
   const handleManualRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['contract-summary', contractCode] });
     refetch();
+  };
+
+  const handleReanalyze = async () => {
+    try {
+      toast.info("Iniciando re-análisis del contrato...");
+      
+      const { data, error } = await supabase.functions.invoke('reanalyze-contract-summary', {
+        body: { contract_code: contractCode }
+      });
+
+      if (error) throw error;
+
+      toast.success(`Re-análisis iniciado: ${data.jobs_created} documentos en cola`);
+      
+      // Refrescar después de 5 segundos
+      setTimeout(() => {
+        handleManualRefresh();
+      }, 5000);
+      
+    } catch (error) {
+      console.error('Error al re-analizar:', error);
+      toast.error('Error al iniciar re-análisis. Intenta nuevamente.');
+    }
   };
 
   if (isLoading) {
@@ -105,8 +130,9 @@ export const ContractExecutiveSummary = ({
             Actualizar
           </Button>
           {onRefresh && (
-            <Button variant="default" onClick={onRefresh} size="sm">
-              Reprocesar documentos
+            <Button variant="default" onClick={handleReanalyze} size="sm">
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Re-analizar todos los documentos
             </Button>
           )}
         </div>
