@@ -8,12 +8,38 @@ export const DatabaseHealthDashboard = () => {
   const { data: health } = useQuery({
     queryKey: ['db-health'],
     queryFn: async () => {
-      // Llamar a la función RPC que retorna métricas
-      const { data, error } = await supabase.rpc('get_db_health_metrics');
-      
-      if (error) {
+      try {
+        // Obtener métricas de múltiples tablas
+        const [
+          { count: totalContracts },
+          { count: activeContracts },
+          { count: totalDocuments },
+          { count: failedJobs },
+          { count: stuckJobs }
+        ] = await Promise.all([
+          supabase.from('contracts').select('*', { count: 'exact', head: true }),
+          supabase.from('contracts').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+          supabase.from('documents').select('*', { count: 'exact', head: true }),
+          supabase.from('document_processing_jobs').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
+          supabase.from('document_processing_jobs').select('*', { count: 'exact', head: true }).eq('status', 'processing').lt('updated_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
+        ]);
+
+        return {
+          total_contracts: totalContracts || 0,
+          active_contracts: activeContracts || 0,
+          total_documents: totalDocuments || 0,
+          total_storage_bytes: 0,
+          failed_jobs: failedJobs || 0,
+          stuck_jobs: stuckJobs || 0,
+          stale_ingest_jobs: 0,
+          recent_logs: 0,
+          recent_audit_logs: 0,
+          active_cache_entries: 0,
+          avg_processing_time_ms: 0,
+          last_updated: new Date().toISOString()
+        };
+      } catch (error) {
         console.error('Error fetching health metrics:', error);
-        // Fallback: retornar métricas básicas
         return {
           total_contracts: 0,
           active_contracts: 0,
@@ -29,7 +55,6 @@ export const DatabaseHealthDashboard = () => {
           last_updated: new Date().toISOString()
         };
       }
-      return data as any;
     },
     refetchInterval: 60000, // Refresh cada minuto
   });
