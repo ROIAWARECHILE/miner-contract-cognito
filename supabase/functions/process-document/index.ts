@@ -26,19 +26,23 @@ const SummaryCardSchema = z.object({
     "Gestión"
   ]),
   title: z.string().min(1),
-  badges: z.array(z.string()).optional(),
+  badges: z.array(z.string().nullable()).optional().transform(arr => 
+    arr?.filter((badge): badge is string => badge !== null)
+  ),
   fields: SummaryCardFieldSchema
 });
 
 const ProvenanceSchema = z.object({
-  contract_file: z.string().optional(),
-  annexes: z.array(z.string()).optional()
+  contract_file: z.string().nullable().optional(),
+  annexes: z.array(z.string()).nullable().optional()
 });
 
 const MetaSchema = z.object({
-  confidence: z.number().min(0).max(1).optional(),
-  source_pages: z.array(z.number()).optional(),
-  last_updated: z.string().optional()
+  confidence: z.number().min(0).max(1).nullable().optional(),
+  source_pages: z.array(z.number()).nullable().optional(),
+  last_updated: z.string().nullable().optional(),
+  missing: z.array(z.string()).optional(),
+  notes: z.array(z.string()).optional()
 });
 
 const ContractExecutiveSummarySchema = z.object({
