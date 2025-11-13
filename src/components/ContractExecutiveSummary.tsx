@@ -11,6 +11,25 @@ import { es } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+// Define types for provenance
+type ProvenanceDetailed = {
+  type: 'detailed';
+  items: Array<{
+    card: string;
+    field: string;
+    page: number;
+    excerpt: string;
+  }>;
+};
+
+type ProvenanceLegacy = {
+  type: 'legacy';
+  contract_file?: string | null;
+  annexes?: string[];
+};
+
+type ProvenanceNormalized = ProvenanceDetailed | ProvenanceLegacy;
+
 interface ContractExecutiveSummaryProps {
   contractCode: string;
   onRefresh?: () => void;
@@ -91,8 +110,17 @@ export const ContractExecutiveSummary = ({
   }
 
   const cards = summary.summary_json?.cards || [];
-  const provenance = summary.summary_json?.provenance || {};
+  const rawProvenance = summary.summary_json?.provenance;
   const meta = summary.summary_json?.meta || {};
+  
+  // Normalize provenance to always have 'type' field
+  const provenance: ProvenanceNormalized = (rawProvenance as any)?.type 
+    ? (rawProvenance as ProvenanceNormalized)
+    : { 
+        type: 'legacy' as const, 
+        contract_file: (rawProvenance as any)?.contract_file || null, 
+        annexes: (rawProvenance as any)?.annexes || [] 
+      };
 
   return (
     <div className="space-y-6">
@@ -139,14 +167,22 @@ export const ContractExecutiveSummary = ({
       </div>
 
       {/* Fuentes de información */}
-      {(provenance.contract_file || provenance.annexes?.length) && (
+      {((provenance.type === 'legacy' && (provenance.contract_file || provenance.annexes?.length)) ||
+        (provenance.type === 'detailed' && provenance.items?.length)) && (
         <Alert>
           <FileText className="h-4 w-4" />
           <AlertDescription>
             <span className="font-medium">Fuentes: </span>
-            {provenance.contract_file && <span>{provenance.contract_file}</span>}
-            {provenance.annexes && provenance.annexes.length > 0 && (
-              <span> + {provenance.annexes.length} anexo(s)</span>
+            {provenance.type === 'legacy' && (
+              <>
+                {provenance.contract_file && <span>{provenance.contract_file}</span>}
+                {provenance.annexes && provenance.annexes.length > 0 && (
+                  <span> + {provenance.annexes.length} anexo(s)</span>
+                )}
+              </>
+            )}
+            {provenance.type === 'detailed' && provenance.items && (
+              <span>{provenance.items.length} referencias detalladas en las tarjetas</span>
             )}
           </AlertDescription>
         </Alert>
@@ -157,11 +193,13 @@ export const ContractExecutiveSummary = ({
         {cards.map((card, idx) => (
           <ContractSummaryCard
             key={idx}
-            category={card.category}
-            title={card.title}
-            badges={card.badges}
-            fields={card.fields}
-          />
+              category={card.category}
+              title={card.title}
+              badges={card.badges}
+              fields={card.fields}
+              provenance={provenance}
+              meta={meta}
+            />
         ))}
       </div>
 

@@ -1,12 +1,29 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Users, Calendar, Shield, TrendingUp, Briefcase } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { FileText, Users, Calendar, Shield, TrendingUp, Briefcase, AlertTriangle, BookOpen } from "lucide-react";
 
 interface SummaryCardProps {
   category: string;
   title: string;
   badges?: string[];
   fields: Record<string, any>;
+  provenance?: {
+    type: 'legacy' | 'detailed';
+    contract_file?: string | null;
+    annexes?: string[];
+    items?: Array<{
+      card: string;
+      field: string;
+      page: number;
+      excerpt: string;
+    }>;
+  };
+  meta?: {
+    confidence?: number;
+    missing?: string[];
+    notes?: string[];
+  };
 }
 
 const getCategoryIcon = (category: string) => {
@@ -119,33 +136,93 @@ const formatFieldLabel = (key: string): string => {
     .join(' ');
 };
 
-export const ContractSummaryCard = ({ category, title, badges, fields }: SummaryCardProps) => {
+export const ContractSummaryCard = ({ category, title, badges, fields, provenance, meta }: SummaryCardProps) => {
   const hasData = Object.keys(fields).length > 0;
+  
+  // Calculate completeness percentage
+  const filledFields = Object.values(fields).filter(v => 
+    v !== null && v !== undefined && v !== '' && 
+    !(Array.isArray(v) && v.length === 0)
+  ).length;
+  const totalFields = Object.keys(fields).length;
+  const completeness = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+  
+  // Low confidence warning
+  const isLowConfidence = meta?.confidence !== undefined && meta.confidence < 0.6;
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${getCategoryColor(category)}`}>
-              {getCategoryIcon(category)}
-            </div>
-            <div>
-              <CardTitle className="text-lg">{title}</CardTitle>
-              <div className="flex gap-1.5 mt-1.5">
-                <Badge variant="outline" className="text-xs">
-                  {category}
-                </Badge>
-                {badges && badges.length > 0 && badges.map((badge, idx) => (
-                  <Badge key={idx} variant="secondary" className="text-xs">
-                    {badge}
+    <TooltipProvider>
+      <Card className="hover:shadow-md transition-shadow">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1">
+              <div className={`p-2 rounded-lg ${getCategoryColor(category)}`}>
+                {getCategoryIcon(category)}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-lg">{title}</CardTitle>
+                  {isLowConfidence && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertTriangle className="h-4 w-4 text-warning" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">⚠️ Información parcial - revisar manualmente</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Confianza: {Math.round((meta.confidence || 0) * 100)}%
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                  <Badge variant="outline" className="text-xs">
+                    {category}
                   </Badge>
-                ))}
+                  {badges && badges.length > 0 && badges.map((badge, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">
+                      {badge}
+                    </Badge>
+                  ))}
+                  {completeness > 0 && (
+                    <Badge 
+                      variant={completeness >= 75 ? "default" : completeness >= 50 ? "secondary" : "outline"} 
+                      className="text-xs"
+                    >
+                      {completeness}% completo
+                    </Badge>
+                  )}
+                  {provenance && provenance.type === 'detailed' && provenance.items && provenance.items.length > 0 && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="text-xs cursor-help">
+                          <BookOpen className="h-3 w-3 mr-1" />
+                          {provenance.items.filter((p: any) => p.card === title).length} fuentes
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-md">
+                        <div className="text-xs space-y-2">
+                          <p className="font-semibold">Fuentes de información:</p>
+                          {provenance.items
+                            .filter((p: any) => p.card === title)
+                            .slice(0, 5)
+                            .map((p: any, i: number) => (
+                              <div key={i} className="border-l-2 border-border pl-2">
+                                <p className="font-medium">{p.field}</p>
+                                <p className="text-muted-foreground">Página {p.page}</p>
+                                <p className="text-muted-foreground italic mt-1">"{p.excerpt.substring(0, 100)}..."</p>
+                              </div>
+                            ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
       <CardContent>
         {!hasData ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -167,5 +244,6 @@ export const ContractSummaryCard = ({ category, title, badges, fields }: Summary
         )}
       </CardContent>
     </Card>
+    </TooltipProvider>
   );
 };

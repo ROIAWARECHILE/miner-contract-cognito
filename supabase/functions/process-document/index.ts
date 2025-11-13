@@ -41,6 +41,7 @@ const DocInfoSchema = z.object({
   for_client: z.string().nullable().optional()
 });
 
+// Zod schema for provenance items (detailed format)
 const ProvenanceItemSchema = z.object({
   card: z.string(),
   field: z.string(),
@@ -48,7 +49,31 @@ const ProvenanceItemSchema = z.object({
   excerpt: z.string()
 });
 
-const ProvenanceSchema = z.array(ProvenanceItemSchema).optional();
+// Zod schema for legacy provenance format (object with contract_file and annexes)
+const ProvenanceLegacySchema = z.object({
+  contract_file: z.string().nullable().optional(),
+  annexes: z.array(z.string()).nullable().optional()
+});
+
+// Flexible schema that accepts BOTH formats (legacy object OR new array) and normalizes
+const ProvenanceSchema = z.union([
+  z.array(ProvenanceItemSchema),           // New format (array)
+  ProvenanceLegacySchema                    // Legacy format (object)
+]).transform((val) => {
+  // If it's a legacy object, convert to metadata format
+  if (!Array.isArray(val)) {
+    return {
+      type: 'legacy' as const,
+      contract_file: val.contract_file,
+      annexes: val.annexes
+    };
+  }
+  // If it's an array, keep as is
+  return {
+    type: 'detailed' as const,
+    items: val
+  };
+}).optional();
 
 const MetaSchema = z.object({
   confidence: z.number().min(0).max(1).nullable().optional(),
@@ -296,14 +321,32 @@ ESQUEMA DE SALIDA JSON:
       }
     }
   ],
-  "provenance": {
-    "contract_file": "<filename si es contrato principal>",
-    "annexes": ["<array de filenames de anexos/planes procesados>"]
-  },
+  "provenance": [
+    { 
+      "card": "General", 
+      "field": "contract_code", 
+      "page": 1, 
+      "excerpt": "Excerpt from page showing contract code (≤240 chars)" 
+    },
+    { 
+      "card": "Legal y Administrativa", 
+      "field": "client", 
+      "page": 1, 
+      "excerpt": "Excerpt showing client name (≤240 chars)" 
+    },
+    { 
+      "card": "Alcance Técnico", 
+      "field": "deliverables", 
+      "page": 3, 
+      "excerpt": "Excerpt listing deliverables (≤240 chars)" 
+    }
+  ],
   "meta": {
     "confidence": <0.0-1.0>,  // Calidad de la extracción
     "source_pages": [<páginas procesadas>],
-    "last_updated": "<timestamp>"
+    "last_updated": "<timestamp>",
+    "missing": ["<campos no encontrados>"],
+    "notes": ["<observaciones adicionales>"]
   }
 }
 
@@ -323,6 +366,11 @@ REGLAS DE CALIDAD:
    - NUNCA sobrescribir campos existentes
    - Solo agregar nuevos campos o complementar arrays
    - Si un campo ya tiene valor en DB, NO lo reemplaces a menos que el nuevo documento sea más autoritativo
+
+4. **Provenance detallado:**
+   - Add provenance for at least 8 important fields across all cards (page + excerpt)
+   - Each provenance item must reference: card title, field path, page number, and a short excerpt (≤240 chars)
+   - Use detailed array format for traceability
 
 4. **Confianza (confidence):**
    - 0.95-1.0: Información extraída directamente del documento sin ambigüedad
@@ -1765,20 +1813,42 @@ async function mergeDashboardCards(
       }
     }
     
-    // Update provenance
-    const existingProvenance = existingSummary.provenance || {};
-    const newProvenance = newCards.provenance || {};
+    // Merge provenance (handle both legacy object and new array formats)
+    const existingProvenance = existingSummary.provenance || { type: 'legacy', contract_file: null, annexes: [] };
+    const newProvenance = newCards.provenance || { type: 'legacy', contract_file: null, annexes: [] };
     
-    const mergedProvenance = {
-      contract_file: existingProvenance.contract_file || newProvenance.contract_file,
-      annexes: [
-        ...(existingProvenance.annexes || []),
-        ...(newProvenance.annexes || []).filter((a: string) => 
-          !(existingProvenance.annexes || []).includes(a)
-        ),
-        filename
-      ].filter((a: string) => a !== existingProvenance.contract_file)
-    };
+    let mergedProvenance;
+    
+    if (existingProvenance.type === 'detailed' && newProvenance.type === 'detailed') {
+      // Both are arrays: merge items without duplicates
+      mergedProvenance = {
+        type: 'detailed' as const,
+        items: [
+          ...(existingProvenance.items || []),
+          ...(newProvenance.items || []).filter((newItem: any) =>
+            !(existingProvenance.items || []).some((existingItem: any) =>
+              existingItem.card === newItem.card && existingItem.field === newItem.field
+            )
+          )
+        ]
+      };
+    } else if (existingProvenance.type === 'legacy' || newProvenance.type === 'legacy') {
+      // At least one is legacy: maintain legacy format
+      mergedProvenance = {
+        type: 'legacy' as const,
+        contract_file: existingProvenance.contract_file || newProvenance.contract_file,
+        annexes: [
+          ...(existingProvenance.annexes || []),
+          ...(newProvenance.annexes || []).filter((a: string) =>
+            !(existingProvenance.annexes || []).includes(a)
+          ),
+          filename
+        ].filter((a: string) => a !== existingProvenance.contract_file && a !== newProvenance.contract_file)
+      };
+    } else {
+      // No previous provenance
+      mergedProvenance = newProvenance;
+    }
     
     // Update meta
     mergedSummary = {
