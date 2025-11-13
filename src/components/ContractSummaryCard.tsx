@@ -64,6 +64,22 @@ const getCategoryColor = (category: string) => {
   }
 };
 
+// Formatear valores específicos según su tipo
+const formatFieldValue = (key: string, value: any): string => {
+  if (typeof value === 'boolean') {
+    return value ? '✓ Sí' : '✗ No';
+  }
+  if (key === 'criticidad') {
+    const colors: Record<string, string> = {
+      alta: '🔴 Alta',
+      media: '🟡 Media',
+      baja: '🟢 Baja'
+    };
+    return colors[String(value).toLowerCase()] || String(value);
+  }
+  return String(value);
+};
+
 const renderFieldValue = (key: string, value: any): React.ReactNode => {
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground italic">No disponible</span>;
@@ -75,25 +91,49 @@ const renderFieldValue = (key: string, value: any): React.ReactNode => {
       return <span className="text-muted-foreground italic">Ninguno</span>;
     }
     
-    // Array de objetos (equipo, tareas)
-    if (typeof value[0] === 'object') {
+    // Array de objetos (detectar estructura dinámica)
+    if (typeof value[0] === 'object' && value[0] !== null) {
       return (
-        <ul className="space-y-1.5 mt-1">
-          {value.map((item, idx) => (
-            <li key={idx} className="text-sm flex items-start gap-2">
-              <span className="text-muted-foreground mt-0.5">•</span>
-              <span>
-                {item.nombre && item.cargo ? (
-                  <>
-                    <span className="font-medium">{item.nombre}</span>
-                    <span className="text-muted-foreground"> - {item.cargo}</span>
-                  </>
-                ) : (
-                  JSON.stringify(item)
+        <ul className="space-y-2 mt-1">
+          {value.map((item, idx) => {
+            // Filtrar campos null/undefined
+            const validFields = Object.entries(item).filter(([_, v]) => 
+              v !== null && v !== undefined && v !== ''
+            );
+            
+            if (validFields.length === 0) {
+              return null;
+            }
+
+            // Identificar campo principal (el primero no-null que sea un título/nombre)
+            const primaryField = validFields.find(([k, _]) => 
+              ['name', 'nombre', 'role', 'riesgo', 'tema', 'escenario', 'tipo', 'cargo'].includes(k)
+            );
+            
+            const [primaryKey, primaryValue] = primaryField || validFields[0];
+            const otherFields = validFields.filter(([k, _]) => k !== primaryKey);
+
+            return (
+              <li key={idx} className="text-sm border-l-2 border-border pl-3 pb-1">
+                {/* Campo principal en negrita */}
+                <div className="font-medium text-foreground">
+                  {String(primaryValue)}
+                </div>
+                
+                {/* Otros campos como metadata */}
+                {otherFields.length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {otherFields.map(([k, v]) => (
+                      <div key={k} className="text-xs text-muted-foreground flex gap-2">
+                        <span className="font-medium capitalize">{formatFieldLabel(k)}:</span>
+                        <span>{formatFieldValue(k, v)}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </span>
-            </li>
-          ))}
+              </li>
+            );
+          }).filter(Boolean)}
         </ul>
       );
     }
