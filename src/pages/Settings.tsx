@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Settings as SettingsIcon, User, Bell, Database, Shield } from "lucide-react";
 import { toast } from "sonner";
+import { DatabaseHealthDashboard } from "@/components/DatabaseHealthDashboard";
 
 export default function Settings() {
   const handleSave = () => {
@@ -144,6 +145,8 @@ export default function Settings() {
 
               {/* Database Settings */}
               <TabsContent value="database" className="space-y-4">
+                <DatabaseHealthDashboard />
+                
                 <Card className="border-transparent shadow-md">
                   <CardHeader>
                     <CardTitle>Conexión a Base de Datos</CardTitle>

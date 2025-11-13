@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
 import { ContractExecutiveSummary } from "@/components/ContractExecutiveSummary";
+import { useDeleteContract } from "@/hooks/useDeleteContract";
 
 interface ContractDetailProps {
   contractId: string;
@@ -30,6 +31,7 @@ interface ContractDetailProps {
 
 export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
   const queryClient = useQueryClient();
+  const { deleteContract, isDeleting } = useDeleteContract();
   
   // FASE 3: Obtener contract_code dinámicamente desde contractId
   const { data: contract, isLoading: contractLoading } = useContract(contractId);
@@ -369,15 +371,27 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               {analytics?.overall_progress_pct.toFixed(0)}%
             </div>
             <p className="text-sm text-muted-foreground">Avance Total</p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRefreshMetrics}
-              className="gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Actualizar Métricas
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRefreshMetrics}
+                className="gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Actualizar Métricas
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => deleteContract(contractId, contract?.code || '')}
+                disabled={isDeleting}
+                className="gap-2"
+              >
+                <Trash2 className="w-4 h-4" />
+                {isDeleting ? 'Eliminando...' : 'Eliminar'}
+              </Button>
+            </div>
           </div>
         </div>
 

@@ -77,6 +77,7 @@ export const useContractAnalytics = (contractCode: string) => {
       } as ContractAnalytics;
     },
     retry: 1,
+    staleTime: 30000, // Cache por 30 segundos
   });
 };
 
@@ -106,6 +107,7 @@ export const useContractTasks = (contractCode: string) => {
       return tasks as ContractTask[];
     },
     retry: 1,
+    staleTime: 30000,
   });
 };
 
@@ -135,6 +137,7 @@ export const usePaymentStates = (contractCode: string) => {
       return payments as PaymentState[];
     },
     retry: 1,
+    staleTime: 30000,
   });
 };
 

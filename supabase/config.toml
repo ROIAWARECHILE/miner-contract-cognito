@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.reanalyze-contract-summary]
 verify_jwt = false
+
+[functions.cleanup-failed-jobs]
+verify_jwt = false
+
+[functions.delete-contract]
+verify_jwt = false
