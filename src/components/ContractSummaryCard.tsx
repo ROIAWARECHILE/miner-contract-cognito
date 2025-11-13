@@ -5,6 +5,7 @@ import { FileText, Users, Calendar, Shield, TrendingUp, Briefcase } from "lucide
 interface SummaryCardProps {
   category: string;
   title: string;
+  badges?: string[];
   fields: Record<string, any>;
 }
 
@@ -118,7 +119,7 @@ const formatFieldLabel = (key: string): string => {
     .join(' ');
 };
 
-export const ContractSummaryCard = ({ category, title, fields }: SummaryCardProps) => {
+export const ContractSummaryCard = ({ category, title, badges, fields }: SummaryCardProps) => {
   const hasData = Object.keys(fields).length > 0;
 
   return (
@@ -131,9 +132,16 @@ export const ContractSummaryCard = ({ category, title, fields }: SummaryCardProp
             </div>
             <div>
               <CardTitle className="text-lg">{title}</CardTitle>
-              <Badge variant="outline" className="mt-1 text-xs">
-                {category}
-              </Badge>
+              <div className="flex gap-1.5 mt-1.5">
+                <Badge variant="outline" className="text-xs">
+                  {category}
+                </Badge>
+                {badges && badges.length > 0 && badges.map((badge, idx) => (
+                  <Badge key={idx} variant="secondary" className="text-xs">
+                    {badge}
+                  </Badge>
+                ))}
+              </div>
             </div>
           </div>
         </div>

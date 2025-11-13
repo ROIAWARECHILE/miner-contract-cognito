@@ -5,6 +5,7 @@ import { useEffect } from "react";
 export interface SummaryCard {
   category: string;
   title: string;
+  badges?: string[];
   fields: Record<string, any>;
 }
 
