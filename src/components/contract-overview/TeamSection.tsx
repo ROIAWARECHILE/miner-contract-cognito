@@ -4,11 +4,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 interface TeamSectionProps {
   data: any;
   provenance: any;
+  hasData?: boolean;
 }
 
-export const TeamSection = ({ data, provenance }: TeamSectionProps) => {
-  const equipo = Array.isArray(data.equipo) ? data.equipo : 
-                Array.isArray(data.personal_clave) ? data.personal_clave : [];
+export const TeamSection = ({ data, provenance, hasData = true }: TeamSectionProps) => {
+  const equipo = Array.isArray(data?.equipo) ? data.equipo : 
+                Array.isArray(data?.personal_clave) ? data.personal_clave : [];
+
+  if (!data && !hasData) {
+    return (
+      <div className="bg-card border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Users className="h-5 w-5 text-primary" />
+          Equipo de Proyecto
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          No hay información del equipo disponible. Sube el contrato o propuesta técnica para ver estos datos.
+        </p>
+      </div>
+    );
+  }
 
   if (equipo.length === 0) return null;
 

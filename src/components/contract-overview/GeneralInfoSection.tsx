@@ -4,9 +4,24 @@ import { InfoRow } from "./InfoRow";
 interface GeneralInfoSectionProps {
   data: any;
   provenance: any;
+  hasData?: boolean;
 }
 
-export const GeneralInfoSection = ({ data, provenance }: GeneralInfoSectionProps) => {
+export const GeneralInfoSection = ({ data, provenance, hasData = true }: GeneralInfoSectionProps) => {
+  if (!data && !hasData) {
+    return (
+      <div className="bg-card border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Building2 className="h-5 w-5 text-primary" />
+          Información General
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          No hay información general disponible. Sube el contrato proforma para ver estos datos.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-card border rounded-lg p-6">
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">

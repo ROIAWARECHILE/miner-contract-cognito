@@ -4,11 +4,26 @@ import { Badge } from "@/components/ui/badge";
 interface SafetyQualitySectionProps {
   data: any;
   provenance: any;
+  hasData?: boolean;
 }
 
-export const SafetyQualitySection = ({ data, provenance }: SafetyQualitySectionProps) => {
-  const planSSO = data.plan_sso || data.sso;
-  const planCalidad = data.plan_calidad || data.calidad;
+export const SafetyQualitySection = ({ data, provenance, hasData = true }: SafetyQualitySectionProps) => {
+  if (!data && !hasData) {
+    return (
+      <div className="bg-card border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Shield className="h-5 w-5 text-primary" />
+          Seguridad y Calidad
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          No hay información de seguridad y calidad disponible. Sube los planes de SSO y Calidad para ver estos datos.
+        </p>
+      </div>
+    );
+  }
+
+  const planSSO = data?.plan_sso || data?.sso;
+  const planCalidad = data?.plan_calidad || data?.calidad;
 
   return (
     <div className="bg-card border rounded-lg p-6">

@@ -4,12 +4,27 @@ import { Badge } from "@/components/ui/badge";
 interface ScopeSectionProps {
   data: any;
   provenance: any;
+  hasData?: boolean;
 }
 
-export const ScopeSection = ({ data, provenance }: ScopeSectionProps) => {
-  const objetivo = data.objetivo || data.descripcion_alcance || data.alcance;
-  const entregables = Array.isArray(data.entregables) ? data.entregables : [];
-  const actividades = Array.isArray(data.actividades) ? data.actividades : [];
+export const ScopeSection = ({ data, provenance, hasData = true }: ScopeSectionProps) => {
+  if (!data && !hasData) {
+    return (
+      <div className="bg-card border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Target className="h-5 w-5 text-primary" />
+          Alcance y Objetivos
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          No hay información de alcance disponible. Sube el contrato o memoria técnica para ver estos datos.
+        </p>
+      </div>
+    );
+  }
+
+  const objetivo = data?.objetivo || data?.descripcion_alcance || data?.alcance;
+  const entregables = Array.isArray(data?.entregables) ? data.entregables : [];
+  const actividades = Array.isArray(data?.actividades) ? data.actividades : [];
 
   return (
     <div className="bg-card border rounded-lg p-6">
