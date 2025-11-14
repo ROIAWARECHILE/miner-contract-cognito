@@ -65,7 +65,6 @@ const getCategoryColor = (category: string) => {
   }
 };
 
-// Formatear valores específicos según su tipo
 const formatFieldValue = (key: string, value: any): string => {
   if (typeof value === 'boolean') {
     return value ? '✓ Sí' : '✗ No';
@@ -86,27 +85,21 @@ const renderFieldValue = (key: string, value: any): React.ReactNode => {
     return <span className="text-muted-foreground italic">No disponible</span>;
   }
 
-  // Arrays
   if (Array.isArray(value)) {
     if (value.length === 0) {
       return <span className="text-muted-foreground italic">Ninguno</span>;
     }
     
-    // Array de objetos (detectar estructura dinámica)
     if (typeof value[0] === 'object' && value[0] !== null) {
       return (
         <ul className="space-y-2 mt-1">
           {value.map((item, idx) => {
-            // Filtrar campos null/undefined
             const validFields = Object.entries(item).filter(([_, v]) => 
               v !== null && v !== undefined && v !== ''
             );
             
-            if (validFields.length === 0) {
-              return null;
-            }
+            if (validFields.length === 0) return null;
 
-            // Identificar campo principal (el primero no-null que sea un título/nombre)
             const primaryField = validFields.find(([k, _]) => 
               ['name', 'nombre', 'role', 'riesgo', 'tema', 'escenario', 'tipo', 'cargo'].includes(k)
             );
@@ -115,47 +108,37 @@ const renderFieldValue = (key: string, value: any): React.ReactNode => {
             const otherFields = validFields.filter(([k, _]) => k !== primaryKey);
 
             return (
-              <li key={idx} className="text-sm border-l-2 border-border pl-3 pb-1">
-                {/* Campo principal en negrita */}
-                <div className="font-medium text-foreground">
-                  {String(primaryValue)}
-                </div>
-                
-                {/* Otros campos como metadata */}
+              <li key={idx} className="p-2 rounded-md bg-muted/30 border border-border/50">
+                <div className="font-medium text-sm">{String(primaryValue)}</div>
                 {otherFields.length > 0 && (
-                  <div className="mt-1 space-y-0.5">
+                  <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                     {otherFields.map(([k, v]) => (
-                      <div key={k} className="text-xs text-muted-foreground flex gap-2">
-                        <span className="font-medium capitalize">{formatFieldLabel(k)}:</span>
-                        <span>{formatFieldValue(k, v)}</span>
+                      <div key={k}>
+                        <span className="font-medium">{k}: </span>
+                        {String(v)}
                       </div>
                     ))}
                   </div>
                 )}
               </li>
             );
-          }).filter(Boolean)}
+          })}
         </ul>
       );
     }
     
-    // Array simple de strings
     return (
-      <ul className="space-y-1 mt-1">
+      <ul className="list-disc list-inside space-y-1">
         {value.map((item, idx) => (
-          <li key={idx} className="text-sm flex items-start gap-2">
-            <span className="text-muted-foreground">•</span>
-            <span>{String(item)}</span>
-          </li>
+          <li key={idx} className="text-sm">{String(item)}</li>
         ))}
       </ul>
     );
   }
 
-  // Objetos
-  if (typeof value === 'object') {
+  if (typeof value === 'object' && value !== null) {
     return (
-      <div className="space-y-1.5 mt-1 pl-3 border-l-2 border-border">
+      <div className="space-y-1 text-sm">
         {Object.entries(value).map(([k, v]) => (
           <div key={k}>
             <span className="text-xs font-medium text-muted-foreground uppercase">{k}: </span>
@@ -166,7 +149,6 @@ const renderFieldValue = (key: string, value: any): React.ReactNode => {
     );
   }
 
-  // Valores primitivos
   return <span className="text-sm">{String(value)}</span>;
 };
 
@@ -180,7 +162,6 @@ const formatFieldLabel = (key: string): string => {
 export const ContractSummaryCard = ({ category, title, badges, fields, provenance, meta }: SummaryCardProps) => {
   const hasData = Object.keys(fields).length > 0;
   
-  // Calculate completeness percentage
   const filledFields = Object.values(fields).filter(v => 
     v !== null && v !== undefined && v !== '' && 
     !(Array.isArray(v) && v.length === 0)
@@ -188,7 +169,6 @@ export const ContractSummaryCard = ({ category, title, badges, fields, provenanc
   const totalFields = Object.keys(fields).length;
   const completeness = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
   
-  // Low confidence warning
   const isLowConfidence = meta?.confidence !== undefined && meta.confidence < 0.6;
 
   return (
@@ -239,17 +219,11 @@ export const ContractSummaryCard = ({ category, title, badges, fields, provenanc
                       </TooltipContent>
                     </Tooltip>
                   )}
-                      variant={completeness >= 75 ? "default" : completeness >= 50 ? "secondary" : "outline"} 
-                      className="text-xs"
-                    >
-                      {completeness}% completo
-                    </Badge>
-                  )}
                   {provenance && provenance.type === 'detailed' && provenance.items && provenance.items.length > 0 && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Badge variant="outline" className="text-xs cursor-help">
-                          <BookOpen className="h-3 w-3 mr-1" />
+                        <Badge variant="outline" className="text-xs cursor-help gap-1">
+                          <BookOpen className="h-3 w-3" />
                           {provenance.items.filter((p: any) => p.card === title).length} fuentes
                         </Badge>
                       </TooltipTrigger>
@@ -259,11 +233,10 @@ export const ContractSummaryCard = ({ category, title, badges, fields, provenanc
                           {provenance.items
                             .filter((p: any) => p.card === title)
                             .slice(0, 5)
-                            .map((p: any, i: number) => (
-                              <div key={i} className="border-l-2 border-border pl-2">
-                                <p className="font-medium">{p.field}</p>
-                                <p className="text-muted-foreground">Página {p.page}</p>
-                                <p className="text-muted-foreground italic mt-1">"{p.excerpt.substring(0, 100)}..."</p>
+                            .map((p: any, idx: number) => (
+                              <div key={idx} className="border-l-2 border-primary/30 pl-2">
+                                <p className="text-muted-foreground">📄 Página {p.page}</p>
+                                <p className="italic">"{p.excerpt}"</p>
                               </div>
                             ))}
                         </div>
@@ -274,28 +247,39 @@ export const ContractSummaryCard = ({ category, title, badges, fields, provenanc
               </div>
             </div>
           </div>
-        </CardHeader>
-      <CardContent>
-        {!hasData ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-3 opacity-20" />
-            <p className="text-sm">Sin información disponible</p>
-            <p className="text-xs mt-1">Esta tarjeta se completará al subir documentos relacionados</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {Object.entries(fields).map(([key, value]) => (
-              <div key={key} className="space-y-1">
-                <dt className="text-sm font-medium text-muted-foreground">
-                  {formatFieldLabel(key)}
-                </dt>
-                <dd className="text-sm">{renderFieldValue(key, value)}</dd>
+          
+          {completeness > 0 && completeness < 100 && (
+            <div className="mt-3 space-y-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Completitud</span>
+                <span>{filledFields}/{totalFields} campos</span>
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              <Progress value={completeness} className="h-2" />
+            </div>
+          )}
+        </CardHeader>
+
+        <CardContent>
+          {hasData ? (
+            <div className="space-y-3">
+              {Object.entries(fields).map(([key, value]) => (
+                <div key={key} className="grid grid-cols-3 gap-2">
+                  <div className="font-medium text-sm text-muted-foreground col-span-1">
+                    {formatFieldLabel(key)}
+                  </div>
+                  <div className="col-span-2">
+                    {renderFieldValue(key, value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No hay información disponible
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </TooltipProvider>
   );
 };
