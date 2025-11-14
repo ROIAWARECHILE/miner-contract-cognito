@@ -3,11 +3,26 @@ import { Scale } from "lucide-react";
 interface LegalSectionProps {
   data: any;
   provenance: any;
+  hasData?: boolean;
 }
 
-export const LegalSection = ({ data, provenance }: LegalSectionProps) => {
-  const leyes = Array.isArray(data.leyes_aplicables) ? data.leyes_aplicables : [];
-  const normas = Array.isArray(data.normas_tecnicas) ? data.normas_tecnicas : [];
+export const LegalSection = ({ data, provenance, hasData = true }: LegalSectionProps) => {
+  const leyes = Array.isArray(data?.leyes_aplicables) ? data.leyes_aplicables : [];
+  const normas = Array.isArray(data?.normas_tecnicas) ? data.normas_tecnicas : [];
+
+  if (!data && !hasData) {
+    return (
+      <div className="bg-card border rounded-lg p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Scale className="h-5 w-5 text-primary" />
+          Marco Legal y Normativo
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          No hay información legal disponible. Sube el contrato o anexos para ver estos datos.
+        </p>
+      </div>
+    );
+  }
 
   if (leyes.length === 0 && normas.length === 0) return null;
 

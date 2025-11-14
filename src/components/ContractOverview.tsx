@@ -1,4 +1,5 @@
 import { useContractSummary } from "@/hooks/useContractSummary";
+import { useContract } from "@/hooks/useContract";
 import { ContractHeader } from "./contract-overview/ContractHeader";
 import { GeneralInfoSection } from "./contract-overview/GeneralInfoSection";
 import { ScopeSection } from "./contract-overview/ScopeSection";
@@ -19,7 +20,11 @@ interface ContractOverviewProps {
 
 export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
   const queryClient = useQueryClient();
-  const { data: summary, isLoading, error, refetch } = useContractSummary(contractCode);
+  const { data: summary, isLoading: summaryLoading, error: summaryError, refetch } = useContractSummary(contractCode);
+  const { data: contract, isLoading: contractLoading } = useContract(contractCode);
+
+  const isLoading = summaryLoading || contractLoading;
+  const error = summaryError;
 
   // Función para extraer datos de una categoría específica
   const extractCardData = (category: string) => {
@@ -78,27 +83,45 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
     );
   }
 
-  if (!summary) {
+  // Si no hay contrato, mostrar error
+  if (!contract) {
     return (
-      <Alert>
-        <FileText className="h-4 w-4" />
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          No hay resumen ejecutivo disponible. Sube el contrato proforma, anexos técnicos, 
-          planes de SSO/Calidad o propuestas para generar el resumen automáticamente.
+          No se encontró el contrato. Verifica el código e intenta nuevamente.
         </AlertDescription>
       </Alert>
     );
   }
 
-  // Extraer datos por categoría
+  // Extraer datos por categoría del summary (si existe)
   const generalData = extractCardData('General');
   const legalData = extractCardData('Legal y Administrativa');
   const alcanceData = extractCardData('Alcance Técnico');
   const equipoData = extractCardData('Equipo y Experiencia');
   const seguridadData = extractCardData('Seguridad y Calidad');
 
+  // Construir datos desde contract metadata como fallback
+  const contractMetadata = contract.metadata as any || {};
+  const fallbackData = {
+    general: {
+      mandante: contractMetadata.client || contract.company_id,
+      contratista: contractMetadata.contractor,
+      administrador_contrato: contractMetadata.admin,
+      valor_total_uf: contractMetadata.budget_uf || contract.contract_value,
+      fecha_inicio: contract.start_date || contractMetadata.start_date,
+      fecha_termino: contract.end_date || contractMetadata.end_date,
+      duracion_dias: contractMetadata.duration_days,
+      modalidad: contractMetadata.payment_terms?.type,
+      nombre_contrato: contract.title,
+      titulo: contract.title,
+      estado: contract.status,
+    }
+  };
+
   // Normalizar provenance
-  const rawProvenance = summary.summary_json?.provenance;
+  const rawProvenance = summary?.summary_json?.provenance;
   const provenance = (rawProvenance as any)?.type 
     ? rawProvenance
     : { 
@@ -131,49 +154,55 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
 
       {/* Header del contrato */}
       <ContractHeader 
-        data={generalData} 
+        data={generalData || fallbackData.general} 
         contractCode={contractCode}
-        updatedAt={summary.updated_at}
+        updatedAt={contract.updated_at}
       />
 
       {/* Información General */}
-      {generalData && (
-        <GeneralInfoSection 
-          data={generalData}
-          provenance={provenance}
-        />
-      )}
+      <GeneralInfoSection 
+        data={generalData || fallbackData.general}
+        provenance={provenance}
+        hasData={!!generalData || !!contractMetadata.client}
+      />
 
       {/* Alcance y Objetivos */}
-      {alcanceData && (
-        <ScopeSection 
-          data={alcanceData}
-          provenance={provenance}
-        />
-      )}
+      <ScopeSection 
+        data={alcanceData}
+        provenance={provenance}
+        hasData={!!alcanceData}
+      />
 
       {/* Equipo de Proyecto */}
-      {equipoData && (
-        <TeamSection 
-          data={equipoData}
-          provenance={provenance}
-        />
-      )}
+      <TeamSection 
+        data={equipoData}
+        provenance={provenance}
+        hasData={!!equipoData}
+      />
 
       {/* Seguridad y Calidad */}
-      {seguridadData && (
-        <SafetyQualitySection 
-          data={seguridadData}
-          provenance={provenance}
-        />
-      )}
+      <SafetyQualitySection 
+        data={seguridadData}
+        provenance={provenance}
+        hasData={!!seguridadData}
+      />
 
       {/* Marco Legal */}
-      {legalData && (
-        <LegalSection 
-          data={legalData}
-          provenance={provenance}
-        />
+      <LegalSection 
+        data={legalData}
+        provenance={provenance}
+        hasData={!!legalData}
+      />
+
+      {/* Mensaje informativo si no hay resumen completo */}
+      {!summary && (
+        <Alert>
+          <FileText className="h-4 w-4" />
+          <AlertDescription>
+            Para ver más información detallada, sube el contrato proforma, anexos técnicos, 
+            planes de SSO/Calidad o memorias técnicas y haz clic en "Re-analizar".
+          </AlertDescription>
+        </Alert>
       )}
     </div>
   );
