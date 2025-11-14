@@ -862,6 +862,45 @@ export type Database = {
           },
         ]
       }
+      contract_summaries_audit: {
+        Row: {
+          cards_added: string[] | null
+          cards_updated: string[] | null
+          confidence_score: number | null
+          contract_code: string
+          created_at: string | null
+          id: string
+          new_cards_count: number | null
+          old_cards_count: number | null
+          operation: string
+          triggered_by: string | null
+        }
+        Insert: {
+          cards_added?: string[] | null
+          cards_updated?: string[] | null
+          confidence_score?: number | null
+          contract_code: string
+          created_at?: string | null
+          id?: string
+          new_cards_count?: number | null
+          old_cards_count?: number | null
+          operation: string
+          triggered_by?: string | null
+        }
+        Update: {
+          cards_added?: string[] | null
+          cards_updated?: string[] | null
+          confidence_score?: number | null
+          contract_code?: string
+          created_at?: string | null
+          id?: string
+          new_cards_count?: number | null
+          old_cards_count?: number | null
+          operation?: string
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       contract_tasks: {
         Row: {
           budget_uf: number | null
@@ -2180,6 +2219,7 @@ export type Database = {
         Args: { p_contract_id: string }
         Returns: undefined
       }
+      get_db_health_metrics: { Args: never; Returns: Json }
       get_next_ingest_job: {
         Args: never
         Returns: {

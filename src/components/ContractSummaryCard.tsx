@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { FileText, Users, Calendar, Shield, TrendingUp, Briefcase, AlertTriangle, BookOpen } from "lucide-react";
+import { FileText, Users, Calendar, Shield, TrendingUp, Briefcase, AlertTriangle, BookOpen, Info } from "lucide-react";
 
 interface SummaryCardProps {
   category: string;
@@ -226,7 +227,18 @@ export const ContractSummaryCard = ({ category, title, badges, fields, provenanc
                     </Badge>
                   ))}
                   {completeness > 0 && (
-                    <Badge 
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant={completeness === 100 ? "default" : "secondary"} className="text-xs gap-1">
+                          <Info className="h-3 w-3" />
+                          {completeness}% completa
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">{filledFields} de {totalFields} campos con información</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                       variant={completeness >= 75 ? "default" : completeness >= 50 ? "secondary" : "outline"} 
                       className="text-xs"
                     >

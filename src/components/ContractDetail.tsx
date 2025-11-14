@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
 import { ContractExecutiveSummary } from "@/components/ContractExecutiveSummary";
+import { ContractAIContext } from "@/components/ContractAIContext";
 import { useDeleteContract } from "@/hooks/useDeleteContract";
 
 interface ContractDetailProps {
@@ -732,8 +733,8 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="assistant">
-          <ContractAssistant contractId={contractId} contractCode={contractCode} />
+        <TabsContent value="assistant" className="h-[calc(100vh-24rem)]">
+          <ContractAIContext contractId={contractId} contractCode={contractCode} />
         </TabsContent>
 
         <TabsContent value="team">
