@@ -143,7 +143,7 @@ serve(async (req) => {
           }
           break;
 
-        case 'plan_sso':
+        case 'sso':
           consolidatedData.seguridad = {
             ...consolidatedData.seguridad,
             plan_sso: {
@@ -163,7 +163,7 @@ serve(async (req) => {
           });
           break;
 
-        case 'plan_calidad':
+        case 'quality':
           consolidatedData.seguridad = {
             ...consolidatedData.seguridad,
             plan_calidad: {
@@ -182,7 +182,7 @@ serve(async (req) => {
           });
           break;
 
-        case 'propuesta_tecnica':
+        case 'tech':
           // Complementar alcance
           consolidatedData.alcance = {
             ...consolidatedData.alcance,
