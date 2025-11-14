@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { useContracts } from '@/hooks/useContract';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum'|'memorandum';
 
@@ -39,6 +39,7 @@ export default function DocumentUploader({
   const [selectedEdpNumber, setSelectedEdpNumber] = useState<number | null>(null);
   
   const { data: contracts } = useContracts();
+  const queryClient = useQueryClient();
 
   // Cargar EDPs disponibles del contrato seleccionado
   const { data: availableEdps } = useQuery({
@@ -227,6 +228,32 @@ export default function DocumentUploader({
         } else if (processData?.ok) {
           setLog(l => [`✅ ${safeName} procesado exitosamente`, ...l]);
           toast.success(`✅ ${safeName} procesado correctamente`);
+          
+          // ✨ FASE 1: Invalidar queries relevantes
+          if (docType === 'contract') {
+            // Si se subió un contrato, invalidar lista de contratos
+            queryClient.invalidateQueries({ queryKey: ['contracts'] });
+            setLog(l => [`🔄 Lista de contratos actualizada`, ...l]);
+            
+            // Notificar al usuario que se creó un nuevo contrato
+            if (processData?.new_contract_code) {
+              toast.success(`🎉 Nuevo contrato creado: ${processData.new_contract_code}`, {
+                duration: 8000,
+                description: 'Ya puedes verlo en el dashboard principal'
+              });
+            }
+          } else if (contractId) {
+            // Si se asoció a un contrato existente, invalidar sus queries
+            const code = contracts?.find(c => c.id === contractId)?.code;
+            if (code) {
+              queryClient.invalidateQueries({ queryKey: ['contract-analytics', code] });
+              queryClient.invalidateQueries({ queryKey: ['contract-tasks', code] });
+              queryClient.invalidateQueries({ queryKey: ['payment-states', code] });
+              queryClient.invalidateQueries({ queryKey: ['contract-documents', contractId] });
+              queryClient.invalidateQueries({ queryKey: ['contract-scurve', code] });
+              setLog(l => [`🔄 Datos del contrato actualizados`, ...l]);
+            }
+          }
         } else {
           setLog(l => [`⚠️ Respuesta inesperada al procesar ${safeName}`, ...l]);
           toast.error(processData?.error || 'Error desconocido al procesar');

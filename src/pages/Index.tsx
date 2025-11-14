@@ -3,10 +3,14 @@ import { ContractDashboard } from "@/components/ContractDashboard";
 import { ContractDetail } from "@/components/ContractDetail";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import { useRealtimeContracts } from "@/hooks/useRealtimeContracts";
 
 const Index = () => {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"dashboard" | "documents" | "alerts">("dashboard");
+  
+  // FASE 5: Escuchar creación de nuevos contratos en tiempo real
+  useRealtimeContracts();
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-background via-background to-muted/20">
