@@ -308,6 +308,8 @@ REGLAS DE EXTRACCIÓN POR TIPO DE DOCUMENTO:
 ESQUEMA DE SALIDA JSON:
 
 {
+  "detected_document_type": "contract|annex|sso_plan|quality_plan|proposal|unknown",
+  "document_summary": "<Resumen conciso en 2-3 frases en español del propósito principal del documento>",
   "contract_code": "<extraer del documento o usar el proporcionado>",
   "summary_version": "v1.0",
   "cards": [
@@ -3016,24 +3018,88 @@ serve(async (req) => {
 
     console.log(`[process-document] Saving ${document_type} to database for contract ${contract_code || contract?.code || 'N/A'}...`);
 
-    // Save extracted data to documents table
-    const { error: docError } = await supabase
+    // Save extracted data to documents table and get the new document's ID
+    const { data: savedDocument, error: docError } = await supabase
       .from("documents")
       .insert({
         contract_id: contract?.id || null,
-        doc_type: document_type,
+        doc_type: document_type, // User-provided type
+        ai_detected_type: structured.detected_document_type || null, // AI-detected type
+        ai_summary: structured.document_summary || null, // AI-generated summary
         filename: storage_path.split("/").pop() || "unknown",
         file_url: storage_path,
         processing_status: "completed",
         extracted_data: structured
-      });
+      })
+      .select('id')
+      .single();
 
-    if (docError) {
+    if (docError || !savedDocument) {
       console.error(`[process-document] Failed to save document:`, docError);
-      throw new Error(`Failed to save document: ${docError.message}`);
+      throw new Error(`Failed to save document: ${docError?.message}`);
     }
+    const documentId = savedDocument.id;
 
-    console.log(`[process-document] ✅ Documento guardado en 'documents'`);
+    console.log(`[process-document] ✅ Documento guardado en 'documents' (ID: ${documentId})`);
+
+    // Generate and save embeddings for semantic search
+    if (contract && contract.id && documentId && parsedJson.text && openaiApiKey) {
+      console.log(`[process-document] 🧠 Generating embeddings for document ${documentId}...`);
+      try {
+        const text = parsedJson.text;
+        const chunks = text.split(/\n\s*\n/).filter((chunk: string) => chunk.trim().length > 20); // Split by paragraph and filter small chunks
+
+        for (const chunk of chunks) {
+          // OpenAI has a token limit, roughly 8191 for this model. Let's be safe with characters.
+          if (chunk.length > 25000) {
+            console.warn(`[process-document] Skipping very long chunk (${chunk.length} chars)`);
+            continue;
+          }
+
+          const embeddingResponse = await fetch("https://api.openai.com/v1/embeddings", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${openaiApiKey}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              input: chunk,
+              model: "text-embedding-3-large"
+            })
+          });
+
+          if (!embeddingResponse.ok) {
+            const errorText = await embeddingResponse.text();
+            console.error(`[process-document] OpenAI embedding API error: ${errorText}`);
+            continue; // Skip this chunk but continue with others
+          }
+
+          const embeddingData = await embeddingResponse.json();
+          const embedding = embeddingData.data[0].embedding;
+
+          await supabase.from("document_embeddings").insert({
+            contract_id: contract.id,
+            document_id: documentId,
+            contract_code: contract.code,
+            content: chunk,
+            embedding: embedding,
+          });
+        }
+        console.log(`[process-document] ✅ Saved ${chunks.length} embeddings.`);
+      } catch (embeddingError) {
+        console.error(`[process-document] ❌ Error during embedding generation:`, embeddingError);
+        // Log error in job but do not fail the entire process
+        await supabase
+          .from("document_processing_jobs")
+          .update({
+            progress: {
+              phase: 'embedding_failed',
+              error: String(embeddingError)
+            }
+          })
+          .eq("id", job.id);
+      }
+    }
 
     // ===== GUARDAR EN TECHNICAL_REPORTS SI ES MEMORANDUM =====
     if (document_type === "memorandum" && structured) {

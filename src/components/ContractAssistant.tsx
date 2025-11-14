@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -52,26 +53,21 @@ export const ContractAssistant = ({ contractId, contractCode }: ContractAssistan
     setIsLoading(true);
 
     try {
-      // Llamar a la edge function
-      const response = await fetch(
-        `https://wnkifmuhkhdjbswraini.supabase.co/functions/v1/contract-assistant`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contractId,
-            message: content,
-            sessionId
-          })
-        }
-      );
+      // Llamar a la edge function usando el cliente de Supabase
+      const { data, error } = await supabase.functions.invoke('contract-assistant', {
+        body: {
+          contractId,
+          message: content,
+          sessionId
+        },
+      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Error al obtener respuesta');
+      if (error) {
+        throw new Error(error.message || 'Error al obtener respuesta');
       }
+
+      // El cliente de Supabase maneja el stream directamente
+      const response = data as ReadableStream;
 
       // Procesar streaming (SSE)
       const reader = response.body?.getReader();
