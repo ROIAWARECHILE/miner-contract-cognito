@@ -21,7 +21,7 @@ import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
-import { ContractExecutiveSummary } from "@/components/ContractExecutiveSummary";
+import { ContractOverview } from "@/components/ContractOverview";
 import { ContractAIContext } from "@/components/ContractAIContext";
 import { useDeleteContract } from "@/hooks/useDeleteContract";
 
@@ -448,10 +448,7 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
         </TabsList>
 
         <TabsContent value="summary" className="space-y-6">
-          <ContractExecutiveSummary 
-            contractCode={contractCode} 
-            onRefresh={handleRefreshMetrics}
-          />
+          <ContractOverview contractCode={contractCode} />
         </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
