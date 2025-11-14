@@ -118,7 +118,7 @@ export const useConsolidatedSummary = (contractId: string) => {
             }
             break;
 
-          case 'plan_sso':
+          case 'sso':
             // Plan de Seguridad
             consolidated.seguridad = {
               ...consolidated.seguridad,
@@ -131,7 +131,7 @@ export const useConsolidatedSummary = (contractId: string) => {
             };
             break;
 
-          case 'plan_calidad':
+          case 'quality':
             // Plan de Calidad
             consolidated.seguridad = {
               ...consolidated.seguridad,
@@ -143,7 +143,7 @@ export const useConsolidatedSummary = (contractId: string) => {
             };
             break;
 
-          case 'propuesta_tecnica':
+          case 'tech':
             // Complementar alcance con propuesta técnica
             consolidated.alcance = {
               ...consolidated.alcance,
