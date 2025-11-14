@@ -1,5 +1,6 @@
 import { useContractSummary } from "@/hooks/useContractSummary";
 import { useContract } from "@/hooks/useContract";
+import { useConsolidatedSummary } from "@/hooks/useConsolidatedSummary";
 import { ContractHeader } from "./contract-overview/ContractHeader";
 import { GeneralInfoSection } from "./contract-overview/GeneralInfoSection";
 import { ScopeSection } from "./contract-overview/ScopeSection";
@@ -8,7 +9,7 @@ import { SafetyQualitySection } from "./contract-overview/SafetyQualitySection";
 import { LegalSection } from "./contract-overview/LegalSection";
 import { Skeleton } from "./ui/skeleton";
 import { Alert, AlertDescription } from "./ui/alert";
-import { AlertCircle, FileText, RefreshCw } from "lucide-react";
+import { AlertCircle, FileText, RefreshCw, Layers } from "lucide-react";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -16,14 +17,16 @@ import { useQueryClient } from "@tanstack/react-query";
 
 interface ContractOverviewProps {
   contractCode: string;
+  contractId: string;
 }
 
-export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
+export const ContractOverview = ({ contractCode, contractId }: ContractOverviewProps) => {
   const queryClient = useQueryClient();
   const { data: summary, isLoading: summaryLoading, error: summaryError, refetch } = useContractSummary(contractCode);
-  const { data: contract, isLoading: contractLoading } = useContract(contractCode);
+  const { data: contract, isLoading: contractLoading } = useContract(contractId);
+  const { data: consolidated, isLoading: consolidatedLoading } = useConsolidatedSummary(contractId);
 
-  const isLoading = summaryLoading || contractLoading;
+  const isLoading = summaryLoading || contractLoading || consolidatedLoading;
   const error = summaryError;
 
   // Función para extraer datos de una categoría específica
@@ -61,6 +64,26 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
     }
   };
 
+  const handleConsolidate = async () => {
+    try {
+      toast.info("Consolidando información de todos los documentos...");
+      
+      const { data, error } = await supabase.functions.invoke('consolidate-contract-summary', {
+        body: { contract_id: contractId, contract_code: contractCode }
+      });
+
+      if (error) throw error;
+
+      toast.success(`Resumen consolidado: ${data.cards_generated} secciones generadas de ${data.documents_processed} documentos`);
+      
+      handleManualRefresh();
+      
+    } catch (error) {
+      console.error('Error al consolidar:', error);
+      toast.error('Error al consolidar resumen. Intenta nuevamente.');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -95,12 +118,26 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
     );
   }
 
-  // Extraer datos por categoría del summary (si existe)
-  const generalData = extractCardData('General');
-  const legalData = extractCardData('Legal y Administrativa');
-  const alcanceData = extractCardData('Alcance Técnico');
-  const equipoData = extractCardData('Equipo y Experiencia');
-  const seguridadData = extractCardData('Seguridad y Calidad');
+  // Prioridad de datos: 1) Consolidado > 2) Summary JSON > 3) Metadata del contrato
+  const generalData = consolidated?.general || 
+                      extractCardData('General') || 
+                      null;
+  
+  const legalData = consolidated?.legal && Object.keys(consolidated.legal).length > 0
+                    ? consolidated.legal
+                    : extractCardData('Legal y Administrativa');
+  
+  const alcanceData = consolidated?.alcance && Object.keys(consolidated.alcance).length > 0
+                      ? consolidated.alcance
+                      : extractCardData('Alcance Técnico');
+  
+  const equipoData = consolidated?.equipo && consolidated.equipo.length > 0
+                     ? { equipo: consolidated.equipo }
+                     : extractCardData('Equipo y Experiencia');
+  
+  const seguridadData = consolidated?.seguridad && Object.keys(consolidated.seguridad).length > 0
+                        ? consolidated.seguridad
+                        : extractCardData('Seguridad y Calidad');
 
   // Construir datos desde contract metadata como fallback
   const contractMetadata = contract.metadata as any || {};
@@ -120,15 +157,12 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
     }
   };
 
-  // Normalizar provenance
-  const rawProvenance = summary?.summary_json?.provenance;
-  const provenance = (rawProvenance as any)?.type 
-    ? rawProvenance
-    : { 
-        type: 'legacy' as const, 
-        contract_file: (rawProvenance as any)?.contract_file || null, 
-        annexes: (rawProvenance as any)?.annexes || [] 
-      };
+  // Provenance: priorizar consolidado
+  const rawProvenance = consolidated?.provenance || summary?.summary_json?.provenance;
+  const provenance = rawProvenance || { 
+    type: 'legacy' as const, 
+    documents: [] 
+  };
 
   return (
     <div className="space-y-6">
@@ -141,6 +175,14 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
         >
           <RefreshCw className="h-4 w-4 mr-2" />
           Actualizar
+        </Button>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleConsolidate}
+        >
+          <Layers className="h-4 w-4 mr-2" />
+          Consolidar Resumen
         </Button>
         <Button 
           variant="outline" 

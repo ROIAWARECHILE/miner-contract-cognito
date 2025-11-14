@@ -1,5 +1,8 @@
-import { Users } from "lucide-react";
+import { Users, FileText } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 interface TeamSectionProps {
   data: any;

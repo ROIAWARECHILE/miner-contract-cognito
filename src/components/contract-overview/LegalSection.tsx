@@ -1,4 +1,7 @@
-import { Scale } from "lucide-react";
+import { Scale, FileText } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 interface LegalSectionProps {
   data: any;
@@ -68,6 +71,24 @@ export const LegalSection = ({ data, provenance, hasData = true }: LegalSectionP
           </div>
         )}
       </div>
+
+      {/* Provenance multi-documento */}
+      {provenance?.documents && provenance.documents.length > 0 && (
+        <Alert className="mt-4 bg-muted/50 border-muted">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <AlertDescription className="text-xs text-muted-foreground">
+            <div className="font-medium mb-1">Fuentes consolidadas ({provenance.documents.length} documento{provenance.documents.length > 1 ? 's' : ''}):</div>
+            <ul className="space-y-1">
+              {provenance.documents.map((doc: any, i: number) => (
+                <li key={i}>
+                  • {doc.filename} ({doc.doc_type})
+                  {doc.processed_at && ` - ${formatDistanceToNow(new Date(doc.processed_at), { locale: es, addSuffix: true })}`}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 };

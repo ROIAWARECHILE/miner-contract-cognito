@@ -447,9 +447,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary" className="space-y-6">
-          <ContractOverview contractCode={contractCode} />
-        </TabsContent>
+              <TabsContent value="summary" className="space-y-6">
+                <ContractOverview contractCode={contractCode} contractId={contractId} />
+              </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
           {/* S-Curve */}

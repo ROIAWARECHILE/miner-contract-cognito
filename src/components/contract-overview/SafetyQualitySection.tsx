@@ -1,5 +1,8 @@
-import { Shield, CheckCircle2 } from "lucide-react";
+import { Shield, CheckCircle2, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 interface SafetyQualitySectionProps {
   data: any;
@@ -73,6 +76,24 @@ export const SafetyQualitySection = ({ data, provenance, hasData = true }: Safet
           </div>
         )}
       </div>
+
+      {/* Provenance multi-documento */}
+      {provenance?.documents && provenance.documents.length > 0 && (
+        <Alert className="mt-4 bg-muted/50 border-muted">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <AlertDescription className="text-xs text-muted-foreground">
+            <div className="font-medium mb-1">Fuentes consolidadas ({provenance.documents.length} documento{provenance.documents.length > 1 ? 's' : ''}):</div>
+            <ul className="space-y-1">
+              {provenance.documents.map((doc: any, i: number) => (
+                <li key={i}>
+                  • {doc.filename} ({doc.doc_type})
+                  {doc.processed_at && ` - ${formatDistanceToNow(new Date(doc.processed_at), { locale: es, addSuffix: true })}`}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 };
