@@ -3,6 +3,7 @@ import { ContractDashboard } from "@/components/ContractDashboard";
 import { ContractDetail } from "@/components/ContractDetail";
 import { Sidebar } from "@/components/Sidebar";
 import { Header } from "@/components/Header";
+import SemanticSearch from "@/components/SemanticSearch";
 
 const Index = () => {
   const [selectedContractId, setSelectedContractId] = useState<string | null>(null);
@@ -22,10 +23,15 @@ const Index = () => {
               onBack={() => setSelectedContractId(null)}
             />
           ) : (
-            <ContractDashboard
-              onSelectContract={setSelectedContractId}
-              activeView={activeView}
-            />
+            <>
+              <div className="mb-6">
+                <SemanticSearch />
+              </div>
+              <ContractDashboard
+                onSelectContract={setSelectedContractId}
+                activeView={activeView}
+              />
+            </>
           )}
         </main>
       </div>

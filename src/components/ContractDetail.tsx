@@ -375,6 +375,26 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
               <Button
                 size="sm"
                 variant="outline"
+                onClick={async () => {
+                  try {
+                    toast.info("Iniciando reprocesamiento...", { description: "Esto puede tardar unos minutos." });
+                    const { error } = await supabase.functions.invoke('reprocess-contract', {
+                      body: { contract_id: contractId },
+                    });
+                    if (error) throw error;
+                    toast.success("Reprocesamiento iniciado", { description: "Los documentos se están analizando de nuevo." });
+                  } catch (error) {
+                    toast.error("Error al iniciar el reprocesamiento", { description: (error as Error).message });
+                  }
+                }}
+                className="gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Reprocesar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
                 onClick={handleRefreshMetrics}
                 className="gap-2"
               >
