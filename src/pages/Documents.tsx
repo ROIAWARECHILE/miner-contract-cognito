@@ -83,41 +83,30 @@ export default function DocumentsPage() {
         </div>
 
         {/* Info Banner */}
-        <div className="mt-8 bg-primary/5 border border-primary/20 rounded-xl p-6">
-          <h3 className="font-semibold text-foreground mb-3">
-            🤖 Procesamiento Inteligente Multi-Capa
+        <div className="mt-8 p-6 bg-primary/5 border border-primary/20 rounded-xl">
+          <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+            <span className="text-primary">📊</span>
+            Sistema de Procesamiento de EDPs y Memorandums
           </h3>
-          <div className="text-sm text-muted-foreground space-y-2">
-            <div className="flex items-start gap-2">
-              <span className="font-semibold text-green-600 dark:text-green-400">Capa 1 - LlamaParse:</span>
-              <span>Extrae estructura, tablas y contenido del PDF con OCR avanzado</span>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <div className="flex items-start gap-3">
+              <div className="bg-primary/10 text-primary px-2 py-1 rounded font-medium text-xs">EDP</div>
+              <div>
+                <strong className="text-foreground">Estados de Pago:</strong> Extracción automática de montos UF/CLP, tareas ejecutadas, porcentajes de avance por partida
+              </div>
             </div>
-            <div className="flex items-start gap-2">
-              <span className="font-semibold text-blue-600 dark:text-blue-400">Capa 2 - OpenAI GPT-4o:</span>
-              <span>Analiza el contenido y extrae datos estructurados con interpretación semántica</span>
+            <div className="flex items-start gap-3">
+              <div className="bg-primary/10 text-primary px-2 py-1 rounded font-medium text-xs">MEMO</div>
+              <div>
+                <strong className="text-foreground">Memorándums:</strong> Análisis de curvas S (Plan vs Real), actividades realizadas, figuras y anexos técnicos
+              </div>
             </div>
-            <div className="flex items-start gap-2">
-              <span className="font-semibold text-purple-600 dark:text-purple-400">Capa 3 - Validación:</span>
-              <span>Verifica consistencia y actualiza automáticamente métricas del contrato</span>
-            </div>
-            
-            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-              <p className="font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
-                ⚠️ Configuración Importante
-              </p>
-              <p className="text-yellow-700 dark:text-yellow-300 text-xs">
-                Verifica tu API key de LlamaParse en{' '}
-                <a 
-                  href="https://cloud.llamaindex.ai/api-key" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="underline font-semibold hover:text-yellow-900 dark:hover:text-yellow-100"
-                >
-                  cloud.llamaindex.ai
-                </a>
-                {' '}(debe tener formato llx-...). Sin una key válida, el sistema usará Claude 3.5 Sonnet como fallback.
-              </p>
-            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-primary/10">
+            <p className="text-xs text-muted-foreground">
+              <strong className="text-primary">🤖 IA:</strong> Procesamiento inteligente con OpenAI GPT-4o para máxima precisión en extracción de datos numéricos y curvas
+            </p>
           </div>
         </div>
       </main>

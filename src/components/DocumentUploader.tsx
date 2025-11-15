@@ -69,7 +69,7 @@ export default function DocumentUploader({
     setSelectedEdpNumber(null);
   }, [contractId, docType]);
 
-  // FASE 5: Verificar jobs atascados al montar el componente
+  // Verificar jobs atascados al montar el componente
   useEffect(() => {
     const checkStaleJobs = async () => {
       const { data: staleJobs } = await supabase
@@ -110,8 +110,8 @@ export default function DocumentUploader({
   }
 
   async function uploadAll() {
-    // Only require contractId if document type is not 'contract'
-    if (docType !== 'contract' && !contractId) {
+    // EDPs and memorandums always require a contract
+    if (!contractId) {
       setLog(l => ['❌ ERROR CRÍTICO: No hay contrato seleccionado', ...l]);
       toast.error('⚠️ Primero selecciona un contrato en el selector global', {
         duration: 5000,
@@ -127,23 +127,16 @@ export default function DocumentUploader({
       return;
     }
     
-    // Get contract code (optional for contract type documents)
-    let contract_code = '';
-    if (contractId) {
-      const contract = contracts?.find(c => c.id === contractId);
-      contract_code = contract?.code || '';
-      
-      if (!contract_code && docType !== 'contract') {
-        toast.error('Error: Contrato no encontrado');
-        return;
-      }
+    // Get contract code
+    const contract = contracts?.find(c => c.id === contractId);
+    const contract_code = contract?.code || '';
+    
+    if (!contract_code) {
+      toast.error('Error: Contrato no encontrado');
+      return;
     }
     
-    if (docType === 'contract') {
-      setLog(l => [`✓ Iniciando subida de documento de contrato (se creará automáticamente)`, ...l]);
-    } else {
-      setLog(l => [`✓ Iniciando subida con contrato: ${contract_code}`, ...l]);
-    }
+    setLog(l => [`✓ Iniciando subida con contrato: ${contract_code}`, ...l]);
     setBusy(true);
     setProgress(0); 
     setLog([]);
@@ -155,67 +148,51 @@ export default function DocumentUploader({
       try {
         const safeName = sanitize(f.name);
         
-        // Construct storage path matching new system
-    const folderMap: Record<DocType, string> = {
-      contract: 'contract',
-      quality: 'quality',
-      sso: 'sso',
-      tech: 'tech',
-      edp: 'edp',
-      sdi: 'sdi',
-      addendum: 'addendum',
-      memorandum: 'memo'
-    };
+        // Construct storage path
+        const folderMap: Record<DocType, string> = {
+          edp: 'edp',
+          memorandum: 'memo'
+        };
 
         const folder = folderMap[docType] || docType;
-        
-        // For contract documents without a pre-selected contract, use a pending path
-        const path = docType === 'contract' && !contract_code
-          ? `${projectPrefix}/pending_contracts/${folder}/${safeName}`
-          : `${projectPrefix}/${contract_code}/${folder}/${safeName}`;
+        const path = `${projectPrefix}/${contract_code}/${folder}/${safeName}`;
 
         // Upload to storage
         const { error: upErr } = await supabase.storage
           .from('contracts')
           .upload(path, f, { 
-            upsert: true, 
-            contentType: 'application/pdf' 
+            upsert: true,
+            contentType: 'application/pdf'
           });
         
-        if (upErr) throw upErr;
-
-        setLog(l => [`✅ Subido: ${safeName} → ${path}`, ...l]);
-
-        // Extract EDP number from filename if applicable
-        let edpNumber: number | undefined;
-        if (docType === 'edp') {
-          const match = safeName.match(/EDP[^\d]*(\d+)/i);
-          if (match) {
-            edpNumber = parseInt(match[1], 10);
-            setLog(l => [`📝 Extraído EDP número: ${edpNumber}`, ...l]);
-          }
+        if (upErr) {
+          setLog(l => [`❌ Fallo subida de ${safeName}: ${upErr.message}`, ...l]);
+          toast.error(`Error al subir ${safeName}: ${upErr.message}`);
+          done++;
+          setProgress(Math.round((done/total)*100));
+          continue;
         }
 
-        // Call unified processing function
-        setLog(l => [`🔄 Procesando con LlamaParse + OpenAI GPT-4o...`, ...l]);
+        setLog(l => [`✓ ${safeName} subido a storage. Procesando con IA...`, ...l]);
+        
+        // Call process-document edge function
+        const processPayload: any = {
+          storage_path: path,
+          document_type: docType,
+          contract_id: contractId,
+          project_prefix: projectPrefix
+        };
+
+        // Add EDP number for memorandums
+        if (docType === 'memorandum' && selectedEdpNumber) {
+          processPayload.edp_number = selectedEdpNumber;
+        }
 
         const { data: processData, error: processErr } = await supabase.functions.invoke(
           'process-document',
-          {
-            body: {
-              contract_code: contract_code || null,
-              storage_path: path,
-              document_type: docType,
-              edp_number: docType === 'memorandum' ? selectedEdpNumber : edpNumber,
-              metadata: {
-                filename: safeName,
-                uploaded_at: new Date().toISOString(),
-                user_selected_edp: docType === 'memorandum' ? selectedEdpNumber : undefined
-              }
-            }
-          }
+          { body: processPayload }
         );
-
+        
         if (processErr) {
           setLog(l => [`❌ Error al procesar ${safeName}: ${processErr.message}`, ...l]);
           toast.error(`Error al procesar ${safeName}: ${processErr.message}`);
@@ -245,16 +222,11 @@ export default function DocumentUploader({
         
         // Mensajes específicos según el error
         if (errMsg.includes("Contract not found") || errMsg.includes("No contract found")) {
-          const contractCode = contracts.find((c) => c.id === contractId)?.code || "unknown";
+          const contractCode = contracts?.find((c) => c.id === contractId)?.code || "unknown";
           toast.error(`❌ Error: El contrato "${contractCode}" no existe en el sistema`, {
             duration: 6000,
           });
           setLog((l) => [`❌ ERROR: Contrato "${contractCode}" no encontrado en la base de datos`, ...l]);
-        } else if (errMsg.includes("LLAMAPARSE_API_KEY") || errMsg.includes("LlamaParse")) {
-          toast.error("❌ Error: LlamaParse API key no configurado. Contacta al administrador.", {
-            duration: 6000,
-          });
-          setLog((l) => [`❌ ERROR: LlamaParse API key no está configurado en Supabase Secrets`, ...l]);
         } else if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("OpenAI")) {
           toast.error("❌ Error: OpenAI API key no configurado. Contacta al administrador.", {
             duration: 6000,
@@ -277,7 +249,7 @@ export default function DocumentUploader({
     
     setBusy(false);
     
-    toast.success(`✅ ${done} archivo(s) procesados con LlamaParse + OpenAI GPT-4o`, {
+    toast.success(`✅ ${done} archivo(s) procesados con OpenAI GPT-4o`, {
       duration: 5000
     });
   }
@@ -285,114 +257,91 @@ export default function DocumentUploader({
   // Always require contract for EDPs and memorandums
   const canUpload = (
     contractId && 
-    files.length > 0 &&
+    files.length > 0 && 
     !busy &&
-    (docType !== 'memorandum' || selectedEdpNumber !== null)
+    (docType === 'edp' || (docType === 'memorandum' && selectedEdpNumber !== null))
   );
-  
+
+  const instructionText = docType === 'memorandum' 
+    ? 'Memorándums técnicos con curvas S y actividades realizadas'
+    : 'Estados de pago mensuales (EDPs) con detalles de avance por tarea';
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-      {!preselectedContractId && docType !== 'contract' && (
-        <div className="mb-3 flex items-center gap-3">
-          <label className="text-sm font-medium text-muted-foreground">Contrato *</label>
-          <select 
-            className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
-            value={contractId} 
-            onChange={e => setContractId(e.target.value)}
-            required
+    <div className="p-4 border border-border rounded-lg bg-card/50 space-y-4">
+      {/* Doc Type Selector */}
+      <div>
+        <label className="block text-sm font-medium text-foreground mb-2">
+          Tipo de Documento
+        </label>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setDocType('edp')}
+            variant={docType === 'edp' ? 'default' : 'outline'}
+            size="sm"
+            className="flex-1"
           >
-            <option value="">⚠️ Seleccionar contrato (requerido)</option>
-            {contracts?.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.code} - {c.title}
+            {LABEL.edp}
+          </Button>
+          <Button
+            onClick={() => setDocType('memorandum')}
+            variant={docType === 'memorandum' ? 'default' : 'outline'}
+            size="sm"
+            className="flex-1"
+          >
+            {LABEL.memorandum}
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {instructionText}
+      </p>
+
+      {/* EDP Selector for Memorandums */}
+      {docType === 'memorandum' && availableEdps && availableEdps.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            Asociar a EDP
+          </label>
+          <select
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            value={selectedEdpNumber || ''}
+            onChange={(e) => setSelectedEdpNumber(e.target.value ? parseInt(e.target.value) : null)}
+          >
+            <option value="">Seleccionar EDP...</option>
+            {availableEdps.map((edp) => (
+              <option key={edp.edp_number} value={edp.edp_number}>
+                EDP #{edp.edp_number} - {edp.period_label} ({edp.amount_uf} UF)
               </option>
             ))}
           </select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Selecciona el EDP al que corresponde este memorándum técnico
+          </p>
         </div>
       )}
-      
-      {!preselectedContractId && docType === 'contract' && (
-        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
-          ℹ️ No es necesario seleccionar un contrato. El sistema lo creará automáticamente al procesar el documento.
-        </div>
-      )}
-      
-      {/* Show selected contract clearly */}
-      {contractId && (
-        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
-          <strong>✓ Contrato seleccionado:</strong> {contracts?.find(c => c.id === contractId)?.code}
-        </div>
-      )}
-      
-      <div className="mb-3 flex items-center gap-3">
-        <label className="text-sm font-medium text-muted-foreground">Tipo</label>
-        <select 
-          className="rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
-          value={docType} 
-          onChange={e => setDocType(e.target.value as DocType)}
-        >
-          {Object.entries(LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+
+      {/* File Picker */}
+      <div>
+        <label className="block text-sm font-medium text-foreground mb-2">
+          Seleccionar Archivo(s) PDF
+        </label>
+        <input
+          type="file"
+          accept="application/pdf"
+          multiple
+          onChange={onPick}
+          disabled={busy}
+          className="w-full text-sm text-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+        />
+        {files.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {files.length} archivo(s) seleccionado(s): {files.map(f => f.name).join(', ')}
+          </p>
+        )}
       </div>
 
-      {/* Selector de EDP - Solo para memorandums */}
-      {docType === 'memorandum' && contractId && (
-        <div className="mb-3 flex items-center gap-3">
-          <label className="text-sm font-medium text-muted-foreground">EDP Asociado *</label>
-          <select 
-            className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
-            value={selectedEdpNumber || ''} 
-            onChange={e => setSelectedEdpNumber(e.target.value ? parseInt(e.target.value, 10) : null)}
-            required
-          >
-            <option value="">⚠️ Seleccionar EDP (requerido)</option>
-            {availableEdps && availableEdps.length > 0 ? (
-              availableEdps.map(edp => (
-                <option key={edp.edp_number} value={edp.edp_number}>
-                  EDP #{edp.edp_number} - {edp.period_label} ({edp.status}) - {edp.amount_uf} UF
-                </option>
-              ))
-            ) : (
-              <option value="" disabled>
-                No hay EDPs disponibles para este contrato
-              </option>
-            )}
-          </select>
-        </div>
-      )}
-
-      {/* Advertencia si no hay EDPs disponibles */}
-      {docType === 'memorandum' && contractId && availableEdps && availableEdps.length === 0 && (
-        <div className="mb-3 p-2 bg-destructive/10 border border-destructive/30 rounded text-sm text-destructive">
-          ⚠️ No hay EDPs registrados para este contrato. Primero debes procesar al menos un EDP.
-        </div>
-      )}
-
-      {/* Mostrar EDP seleccionado */}
-      {docType === 'memorandum' && selectedEdpNumber && (
-        <div className="mb-3 p-2 bg-primary/10 border border-primary/30 rounded text-sm">
-          <strong>✓ EDP seleccionado:</strong> #{selectedEdpNumber}
-          {availableEdps?.find(e => e.edp_number === selectedEdpNumber)?.period_label && 
-            ` - ${availableEdps.find(e => e.edp_number === selectedEdpNumber)?.period_label}`
-          }
-        </div>
-      )}
-
-      <label className="w-full border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:bg-accent/50 transition-colors block">
-        <input 
-          type="file" 
-          accept="application/pdf" 
-          multiple 
-          className="hidden" 
-          onChange={onPick} 
-        />
-        <div className="text-muted-foreground">
-          <div className="font-medium text-foreground">Arrastra PDF o haz clic para seleccionar</div>
-          <div className="text-xs mt-1">Destino: <code className="text-xs bg-muted px-1 rounded">contracts/{projectPrefix}/{docType}/</code></div>
-          <div className="text-xs mt-1 text-muted-foreground/70">Max 100MB por archivo</div>
-        </div>
-      </label>
-
+      {/* Upload Button & Progress */}
       {files.length > 0 && (
         <div className="mt-4 space-y-3">
           <div className="text-sm text-foreground font-medium">{files.length} archivo(s) seleccionado(s)</div>
@@ -415,36 +364,38 @@ export default function DocumentUploader({
                 ? '⚠️ Selecciona un contrato' 
                 : docType === 'memorandum' && !selectedEdpNumber
                   ? '⚠️ Selecciona un EDP'
-                  : `✓ Subir ${files.length} archivo(s) y procesar con IA`}
+                  : `Subir y Procesar ${LABEL[docType]}`
+            }
           </Button>
-          
-          {progress > 0 && (
-            <Progress value={progress} className="h-2" />
-          )}
-          
-          {log.length > 0 && (
-            <ul className="space-y-1 max-h-40 overflow-auto text-xs font-mono bg-muted/30 p-3 rounded-lg">
-              {log.map((l,i) => <li key={i}>{l}</li>)}
-            </ul>
-          )}
+
+          {busy && <Progress value={progress} className="h-2" />}
+        </div>
+      )}
+
+      {/* Processing Log */}
+      {log.length > 0 && (
+        <div className="mt-4 max-h-48 overflow-auto p-3 bg-muted/30 rounded-md text-xs font-mono space-y-1">
+          {log.slice(0, 10).map((line, i) => (
+            <div key={i} className={
+              line.includes('✅') ? 'text-green-600' :
+              line.includes('❌') ? 'text-red-600' :
+              line.includes('⚠️') ? 'text-yellow-600' :
+              'text-muted-foreground'
+            }>
+              {line}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function sanitize(name: string) {
-  return name
-    .replace(/\s+/g, '_')  // Replace spaces with underscores
-    .replace(/[^\w\.\-\u00C0-\u017F_]/g, '')  // Remove special chars except letters, numbers, dots, dashes, underscores
-    .replace(/_+/g, '_')  // Replace multiple underscores with single
-    .trim();
-}
-
-async function digest(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const hash = await crypto.subtle.digest('SHA-1', buf);
-  return Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2,'0'))
-    .join('');
+function sanitize(filename: string): string {
+  return filename
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
