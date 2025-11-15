@@ -6,16 +6,10 @@ import { toast } from 'sonner';
 import { useContracts } from '@/hooks/useContract';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-type DocType = 'contract'|'quality'|'sso'|'tech'|'edp'|'sdi'|'addendum'|'memorandum';
+type DocType = 'edp' | 'memorandum';
 
 const LABEL: Record<DocType,string> = {
-  contract: 'Contrato',
-  quality: 'Plan de Calidad',
-  sso: 'Plan de SSO',
-  tech: 'Estudio Técnico',
   edp: 'Estado de Pago (EDP)',
-  sdi: 'SDI',
-  addendum: 'Addendum',
   memorandum: 'Memorándum / Respaldo EdP'
 };
 
@@ -229,21 +223,8 @@ export default function DocumentUploader({
           setLog(l => [`✅ ${safeName} procesado exitosamente`, ...l]);
           toast.success(`✅ ${safeName} procesado correctamente`);
           
-          // ✨ FASE 1: Invalidar queries relevantes
-          if (docType === 'contract') {
-            // Si se subió un contrato, invalidar lista de contratos
-            queryClient.invalidateQueries({ queryKey: ['contracts'] });
-            setLog(l => [`🔄 Lista de contratos actualizada`, ...l]);
-            
-            // Notificar al usuario que se creó un nuevo contrato
-            if (processData?.new_contract_code) {
-              toast.success(`🎉 Nuevo contrato creado: ${processData.new_contract_code}`, {
-                duration: 8000,
-                description: 'Ya puedes verlo en el dashboard principal'
-              });
-            }
-          } else if (contractId) {
-            // Si se asoció a un contrato existente, invalidar sus queries
+          // Invalidar queries relevantes
+          if (contractId) {
             const code = contracts?.find(c => c.id === contractId)?.code;
             if (code) {
               queryClient.invalidateQueries({ queryKey: ['contract-analytics', code] });
@@ -301,10 +282,10 @@ export default function DocumentUploader({
     });
   }
 
-  // Prevent upload if no contract selected (except for contract type documents)
+  // Always require contract for EDPs and memorandums
   const canUpload = (
-    (docType === 'contract' || contractId) && 
-    files.length > 0 && 
+    contractId && 
+    files.length > 0 &&
     !busy &&
     (docType !== 'memorandum' || selectedEdpNumber !== null)
   );
@@ -421,7 +402,7 @@ export default function DocumentUploader({
             disabled={!canUpload} 
             className="w-full"
             title={
-              docType !== 'contract' && !contractId 
+              !contractId 
                 ? 'Debes seleccionar un contrato primero' 
                 : docType === 'memorandum' && !selectedEdpNumber
                   ? 'Debes seleccionar un EDP para el memorándum'
@@ -430,7 +411,7 @@ export default function DocumentUploader({
           >
             {busy 
               ? 'Subiendo y procesando…' 
-              : docType !== 'contract' && !contractId 
+              : !contractId 
                 ? '⚠️ Selecciona un contrato' 
                 : docType === 'memorandum' && !selectedEdpNumber
                   ? '⚠️ Selecciona un EDP'

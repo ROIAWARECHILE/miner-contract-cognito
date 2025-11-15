@@ -54,42 +54,30 @@ export default function DocumentsPage() {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Section 1: Contract & Technical Bases */}
-          <section className="space-y-4">
-            <div className="bg-card border border-border rounded-xl p-4">
-              <h2 className="font-semibold text-lg text-foreground mb-4">
-                Contrato & Bases Técnicas
-              </h2>
-              <div className="space-y-3">
-                <DocumentUploader defaultType="contract" preselectedContractId={selectedContractId} />
-                <DocumentUploader defaultType="quality" preselectedContractId={selectedContractId} />
-                <DocumentUploader defaultType="sso" preselectedContractId={selectedContractId} />
-                <DocumentUploader defaultType="tech" preselectedContractId={selectedContractId} />
-              </div>
-            </div>
-          </section>
-
-          {/* Section 2: Payment States (EDPs) */}
+        <div className="grid gap-6 md:grid-cols-2 max-w-4xl mx-auto">
+          {/* Section 1: Payment States (EDPs) */}
           <section className="space-y-4">
             <div className="bg-card border border-border rounded-xl p-4">
               <h2 className="font-semibold text-lg text-foreground mb-4">
                 Estados de Pago (EDP)
               </h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                Sube los PDFs de estados de pago mensuales
+              </p>
               <DocumentUploader defaultType="edp" preselectedContractId={selectedContractId} />
             </div>
           </section>
 
-          {/* Section 3: Administrative */}
+          {/* Section 2: Memorandums */}
           <section className="space-y-4">
             <div className="bg-card border border-border rounded-xl p-4">
               <h2 className="font-semibold text-lg text-foreground mb-4">
-                Administrativo
+                Memorándums Técnicos
               </h2>
-              <div className="space-y-3">
-                <DocumentUploader defaultType="sdi" preselectedContractId={selectedContractId} />
-                <DocumentUploader defaultType="addendum" preselectedContractId={selectedContractId} />
-              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Sube memorándums de respaldo de EDPs con curvas S
+              </p>
+              <DocumentUploader defaultType="memorandum" preselectedContractId={selectedContractId} />
             </div>
           </section>
         </div>
