@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ContractAssistant } from "@/components/ContractAssistant";
 import { ContractOverview } from "@/components/ContractOverview";
 import { ContractAIContext } from "@/components/ContractAIContext";
+import { ContractExecutiveSummary } from "@/components/ContractExecutiveSummary";
 import { useDeleteContract } from "@/hooks/useDeleteContract";
 
 interface ContractDetailProps {
@@ -419,11 +420,15 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       </div>
 
       {/* Main Content Tabs */}
-      <Tabs defaultValue="summary" className="space-y-6">
+      <Tabs defaultValue="executive" className="space-y-6">
         <TabsList className="bg-muted/50">
+          <TabsTrigger value="executive" className="gap-2">
+            <FileText className="w-4 h-4" />
+            Resumen IA
+          </TabsTrigger>
           <TabsTrigger value="summary" className="gap-2">
             <FileText className="w-4 h-4" />
-            Resumen Ejecutivo
+            Datos Generales
           </TabsTrigger>
           <TabsTrigger value="progress" className="gap-2">
             <TrendingUp className="w-4 h-4" />
@@ -446,6 +451,25 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             Cronograma
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="executive" className="space-y-6">
+          <ContractExecutiveSummary 
+            contractCode={contractCode}
+            onRefresh={async () => {
+              try {
+                toast.info('Generando resumen ejecutivo...');
+                const { error } = await supabase.functions.invoke('generate-executive-summary', {
+                  body: { contract_code: contractCode }
+                });
+                if (error) throw error;
+                toast.success('Resumen ejecutivo generado correctamente');
+              } catch (error) {
+                console.error('Error generando resumen:', error);
+                toast.error('Error al generar resumen ejecutivo');
+              }
+            }}
+          />
+        </TabsContent>
 
         <TabsContent value="summary" className="space-y-6">
           <ContractOverview contractCode={contractCode} />
