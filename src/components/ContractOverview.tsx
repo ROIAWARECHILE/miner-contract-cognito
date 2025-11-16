@@ -41,23 +41,22 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
 
   const handleReanalyze = async () => {
     try {
-      toast.info("Iniciando re-análisis del contrato...");
+      toast.info("Consolidando información de todos los documentos...");
       
-      const { data, error } = await supabase.functions.invoke('reanalyze-contract-summary', {
+      const { data, error } = await supabase.functions.invoke('generate-executive-summary', {
         body: { contract_code: contractCode }
       });
 
       if (error) throw error;
 
-      toast.success(`Re-análisis iniciado: ${data.jobs_created} documentos en cola`);
+      toast.success(`Datos consolidados exitosamente de ${data.documents_analyzed} documentos (${data.edps_count} EDPs, ${data.memos_count} Memorandums)`);
       
-      setTimeout(() => {
-        handleManualRefresh();
-      }, 5000);
+      // Refrescar inmediatamente ya que la generación es sincrónica
+      handleManualRefresh();
       
     } catch (error) {
-      console.error('Error al re-analizar:', error);
-      toast.error('Error al iniciar re-análisis. Intenta nuevamente.');
+      console.error('Error al consolidar datos:', error);
+      toast.error('Error al consolidar información. Intenta nuevamente.');
     }
   };
 
@@ -143,12 +142,12 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
           Actualizar
         </Button>
         <Button 
-          variant="outline" 
+          variant="default" 
           size="sm" 
           onClick={handleReanalyze}
         >
           <FileText className="h-4 w-4 mr-2" />
-          Re-analizar
+          Consolidar Datos
         </Button>
       </div>
 
@@ -199,8 +198,8 @@ export const ContractOverview = ({ contractCode }: ContractOverviewProps) => {
         <Alert>
           <FileText className="h-4 w-4" />
           <AlertDescription>
-            Para ver más información detallada, sube el contrato proforma, anexos técnicos, 
-            planes de SSO/Calidad o memorias técnicas y haz clic en "Re-analizar".
+            Para ver información consolidada, sube Estados de Pago (EDPs) y Memorandums Técnicos 
+            en la sección de Documentos, luego haz clic en "Consolidar Datos".
           </AlertDescription>
         </Alert>
       )}

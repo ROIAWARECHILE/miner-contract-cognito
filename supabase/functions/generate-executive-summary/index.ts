@@ -147,7 +147,7 @@ ${tasks.map(task => `
 
     // 7. Generar resumen ejecutivo con OpenAI
     const systemPrompt = `Eres un asistente especializado en análisis de contratos de minería chilenos.
-Tu tarea es generar un resumen ejecutivo estructurado basado en los datos extraídos de Estados de Pago (EDPs) y Memorandums Técnicos procesados por LlamaParse.
+Tu tarea es generar un resumen ejecutivo estructurado y completo basado en TODOS los datos extraídos de Estados de Pago (EDPs) y Memorandums Técnicos procesados por LlamaParse.
 
 Debes crear un JSON con el siguiente formato:
 
@@ -160,8 +160,14 @@ Debes crear un JSON con el siguiente formato:
       "title": "Información General",
       "badges": ["Badge1", "Badge2"],
       "fields": {
-        "campo1": "valor1",
-        "campo2": "valor2"
+        "mandante": "Nombre del mandante/cliente",
+        "contratista": "Nombre del contratista",
+        "administrador_contrato": "Nombre del administrador",
+        "valor_total_uf": "Valor total en UF",
+        "fecha_inicio": "Fecha de inicio",
+        "fecha_termino": "Fecha de término",
+        "duracion_dias": "Duración en días",
+        "modalidad": "Tipo de contrato"
       }
     }
   ],
@@ -178,29 +184,47 @@ Debes crear un JSON con el siguiente formato:
   }
 }
 
-CATEGORÍAS PERMITIDAS para las cards:
-- "General"
-- "Legal y Administrativa"
-- "Alcance Técnico"
-- "Equipo y Experiencia"
-- "Seguridad y Calidad"
-- "Programa y Avance"
-- "KPIs"
-- "Responsables"
-- "Cumplimiento"
-- "Controles Críticos"
-- "Emergencias"
-- "Gestión"
+CATEGORÍAS OBLIGATORIAS (debes generar TODAS):
+1. "General" - Información básica del contrato consolidada de todos los documentos:
+   - mandante, contratista, administrador_contrato
+   - valor_total_uf, fecha_inicio, fecha_termino, duracion_dias, modalidad
 
-INSTRUCCIONES IMPORTANTES:
-1. Analiza todos los EDPs y Memorandums disponibles
-2. Extrae los KPIs más relevantes (montos gastados, progreso, estado)
-3. Identifica tendencias y patrones en el avance del proyecto
-4. Destaca actividades principales realizadas
-5. Resume resultados y entregables clave
-6. Calcula porcentajes de avance basándote en los datos
-7. Identifica posibles riesgos o alertas (ej: sobre-presupuesto, retrasos)
-8. Genera entre 4-8 cards con información relevante y accionable
+2. "Legal y Administrativa" - Aspectos legales y administrativos:
+   - tipo_contrato, legislacion_aplicable, forma_pago
+   - garantias, multas_penalidades, reajustes
+   - plazos_entrega, recepcion_trabajos
+
+3. "Alcance Técnico" - Alcance y descripción técnica:
+   - descripcion_servicios, objetivos_principales, metodologia
+   - entregables_clave, ubicacion_faena, condiciones_trabajo
+   - exclusiones_alcance
+
+4. "Equipo y Experiencia" - Equipo y recursos:
+   - profesional_cargo, equipo_trabajo, subcontratistas
+   - experiencia_requerida, certificaciones
+
+5. "Seguridad y Calidad" - Planes y requisitos:
+   - plan_sso, plan_calidad, certificaciones_vigentes
+   - capacitaciones_requeridas, estandares_aplicables
+   - procedimientos_emergencia
+
+CATEGORÍAS OPCIONALES (genera si hay información suficiente):
+- "Programa y Avance" - Cronograma y progreso
+- "KPIs" - Indicadores clave consolidados
+- "Responsables" - Contactos y responsables
+- "Cumplimiento" - Estado de cumplimiento
+- "Controles Críticos" - Controles de riesgo
+- "Gestión" - Aspectos de gestión del contrato
+
+INSTRUCCIONES CRÍTICAS:
+1. Consolida información de TODOS los EDPs y Memorandums
+2. Si un campo no tiene información en los documentos, usa "No especificado" o "Pendiente"
+3. SIEMPRE genera las 5 categorías obligatorias, incluso con datos parciales
+4. Extrae KPIs financieros consolidados (total gastado, disponible, % avance)
+5. Identifica actividades principales y resultados de los memorandums
+6. Calcula tendencias de avance mes a mes
+7. Identifica riesgos o alertas (sobrepresupuesto, retrasos, incumplimientos)
+8. Usa datos exactos de los documentos, no inventes información
 9. SOLO devuelve JSON válido, sin markdown ni texto adicional`;
 
     const userPrompt = `${contractContext}
