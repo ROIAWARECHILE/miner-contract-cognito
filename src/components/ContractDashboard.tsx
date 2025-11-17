@@ -1,4 +1,4 @@
-import { FileText, TrendingUp, AlertCircle, CheckCircle2, CheckCheck } from "lucide-react";
+import { FileText, TrendingUp, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -110,24 +110,11 @@ export const ContractDashboard = ({ onSelectContract, activeView }: ContractDash
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
-          <p className="text-muted-foreground">
-            Gestión inteligente de contratos mineros con IA
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button 
-            onClick={handleVerifyContract}
-            disabled={isVerifying}
-            variant="outline"
-            className="gap-2"
-          >
-            <CheckCheck className="h-4 w-4" />
-            {isVerifying ? "Verificando..." : "Verificar Datos"}
-          </Button>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gradient mb-2">Dashboard de Contratos</h1>
+        <p className="text-muted-foreground">
+          Gestión centralizada de contratos mineros
+        </p>
       </div>
 
       {/* Stats Grid */}

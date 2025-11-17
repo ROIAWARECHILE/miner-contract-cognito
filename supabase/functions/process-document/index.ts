@@ -1633,16 +1633,9 @@ Extract information relevant to this document type and generate cards accordingl
   const data = JSON.parse(content);
   const tokens = response.usage?.total_tokens || 0;
   
-  // Validate schema with Zod
-  try {
-    const validated = ContractExecutiveSummarySchema.parse(data);
-    console.log(`[extractDashboardCards] ✅ Schema validation passed`);
-    console.log(`[extractDashboardCards] ✅ Cards extracted - Tokens: ${tokens}, Cards: ${validated.cards?.length || 0}`);
-    return { data: validated, tokens };
-  } catch (error) {
-    console.error(`[extractDashboardCards] ❌ Schema validation failed:`, error);
-    throw new Error(`Invalid executive summary schema: ${(error as Error).message}`);
-  }
+  // Return data without schema validation (schema removed during consolidation)
+  console.log(`[extractDashboardCards] ✅ Cards extracted - Tokens: ${tokens}`);
+  return { data, tokens };
 }
 
 // NEW: Merge incremental data into contract_summaries.summary_json
