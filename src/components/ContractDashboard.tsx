@@ -15,49 +15,11 @@ interface ContractDashboardProps {
 }
 
 export const ContractDashboard = ({ onSelectContract, activeView }: ContractDashboardProps) => {
-  const [isVerifying, setIsVerifying] = useState(false);
   const { data: contractsData, isLoading, refetch } = useContracts();
   
   // Enable realtime updates for the main contract
   useRealtimeContract('AIPD-CSI001-1000-MN-0001');
 
-  const handleVerifyContract = async () => {
-    setIsVerifying(true);
-    toast.info("Verificando datos del contrato Dominga...");
-    
-    try {
-      const { data, error } = await supabase.functions.invoke('verify-contract', {
-        body: { contract_code: 'AIPD-CSI001-1000-MN-0001' }
-      });
-      
-      if (error) {
-        console.error('Edge function error:', error);
-        throw new Error(error.message || 'Error desconocido al invocar la función');
-      }
-      
-      console.log('Verification result:', data);
-      
-      if (data?.status === 'PASS') {
-        toast.success(`✅ Verificación EXITOSA: ${data.summary.pass} checks pasaron`);
-      } else if (data?.status === 'FAIL') {
-        toast.error(`❌ Verificación FALLÓ: ${data.summary.fail} checks fallaron de ${data.summary.pass + data.summary.fail} totales`, {
-          description: 'Revisa la consola para más detalles'
-        });
-        console.log('Failed checks:', data.checks?.filter((c: any) => c.status === 'FAIL'));
-      } else {
-        toast.warning('Verificación completada con resultado inesperado');
-      }
-      
-    } catch (error: any) {
-      console.error('Error verifying contract:', error);
-      const errorMsg = error?.message || 'Error desconocido';
-      toast.error(`Error al verificar contrato: ${errorMsg}`, {
-        description: 'Verifica que el contrato exista en la base de datos'
-      });
-    } finally {
-      setIsVerifying(false);
-    }
-  };
 
   // Use real-time calculated metrics from payment_states
   const contracts = contractsData?.length ? contractsData.map(c => {
