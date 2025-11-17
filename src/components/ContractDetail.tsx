@@ -20,10 +20,6 @@ import { useRealtimeContract } from "@/hooks/useRealtimeContract";
 import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { ContractAssistant } from "@/components/ContractAssistant";
-import { ContractOverview } from "@/components/ContractOverview";
-import { ContractAIContext } from "@/components/ContractAIContext";
-import { ContractExecutiveSummary } from "@/components/ContractExecutiveSummary";
 import { useDeleteContract } from "@/hooks/useDeleteContract";
 
 interface ContractDetailProps {
@@ -420,16 +416,8 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
       </div>
 
       {/* Main Content Tabs */}
-      <Tabs defaultValue="executive" className="space-y-6">
+      <Tabs defaultValue="progress" className="space-y-6">
         <TabsList className="bg-muted/50">
-          <TabsTrigger value="executive" className="gap-2">
-            <FileText className="w-4 h-4" />
-            Resumen IA
-          </TabsTrigger>
-          <TabsTrigger value="summary" className="gap-2">
-            <FileText className="w-4 h-4" />
-            Datos Generales
-          </TabsTrigger>
           <TabsTrigger value="progress" className="gap-2">
             <TrendingUp className="w-4 h-4" />
             Progreso
@@ -438,9 +426,9 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <FileText className="w-4 h-4" />
             Documentos
           </TabsTrigger>
-          <TabsTrigger value="assistant" className="gap-2">
+          <TabsTrigger value="payments" className="gap-2">
             <FileText className="w-4 h-4" />
-            Asistente IA
+            Pagos (EDPs)
           </TabsTrigger>
           <TabsTrigger value="team" className="gap-2">
             <Users className="w-4 h-4" />
@@ -451,29 +439,6 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             Cronograma
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="executive" className="space-y-6">
-          <ContractExecutiveSummary 
-            contractCode={contractCode}
-            onRefresh={async () => {
-              try {
-                toast.info('Generando resumen ejecutivo...');
-                const { error } = await supabase.functions.invoke('generate-executive-summary', {
-                  body: { contract_code: contractCode }
-                });
-                if (error) throw error;
-                toast.success('Resumen ejecutivo generado correctamente');
-              } catch (error) {
-                console.error('Error generando resumen:', error);
-                toast.error('Error al generar resumen ejecutivo');
-              }
-            }}
-          />
-        </TabsContent>
-
-        <TabsContent value="summary" className="space-y-6">
-          <ContractOverview contractCode={contractCode} />
-        </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
           {/* S-Curve */}
@@ -754,8 +719,92 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
           </Card>
         </TabsContent>
 
-        <TabsContent value="assistant" className="h-[calc(100vh-24rem)]">
-          <ContractAIContext contractId={contractId} contractCode={contractCode} />
+        <TabsContent value="payments">
+          <Card className="border-transparent shadow-md">
+            <CardHeader>
+              <CardTitle>Historial de Pagos (EDPs)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                {payments.length > 0 ? (
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="p-3 text-left text-sm font-semibold">Período</th>
+                        <th className="p-3 text-left text-sm font-semibold">EDP #</th>
+                        <th className="p-3 text-right text-sm font-semibold">Monto UF</th>
+                        <th className="p-3 text-center text-sm font-semibold">Tasa UF</th>
+                        <th className="p-3 text-right text-sm font-semibold">Monto CLP</th>
+                        <th className="p-3 text-center text-sm font-semibold">Estado</th>
+                        <th className="p-3 text-center text-sm font-semibold">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payments.map((edp: any) => (
+                        <tr key={edp.id} className="border-b border-border/30 hover:bg-muted/20 transition-colors">
+                          <td className="p-3 text-sm font-mono">{edp.period_label}</td>
+                          <td className="p-3 text-center font-mono font-semibold text-primary">{edp.edp_number}</td>
+                          <td className="p-3 text-right font-mono">
+                            {typeof edp.amount_uf === 'number' ? edp.amount_uf.toFixed(2) : edp.amount_uf} UF
+                          </td>
+                          <td className="p-3 text-center text-xs text-muted-foreground font-mono">
+                            ${typeof edp.uf_rate === 'number' ? edp.uf_rate.toFixed(2) : edp.uf_rate}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            ${typeof edp.amount_clp === 'number' ? edp.amount_clp.toLocaleString('es-CL') : edp.amount_clp}
+                          </td>
+                          <td className="p-3 text-center">
+                            <Badge variant={edp.status === 'approved' ? 'default' : 'secondary'}>
+                              {edp.status === 'approved' ? 'Aprobado' : edp.status}
+                            </Badge>
+                          </td>
+                          <td className="p-3 text-center">
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => {
+                                const doc = documents.find((d: any) => d.extracted_data?.edp_number === edp.edp_number);
+                                if (doc) {
+                                  handleDeleteDocument(doc.id, doc.filename, 'edp');
+                                } else {
+                                  toast.error('No se encontró el documento asociado a este EDP');
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {payments.length > 1 && (
+                        <tr className="bg-muted/30 font-semibold">
+                          <td colSpan={2} className="p-3">Total Acumulado</td>
+                          <td className="p-3 text-right font-mono">
+                            {payments.reduce((sum: number, edp: any) => 
+                              sum + (typeof edp.amount_uf === 'number' ? edp.amount_uf : 0), 0
+                            ).toFixed(2)} UF
+                          </td>
+                          <td className="p-3"></td>
+                          <td className="p-3 text-right font-mono">
+                            ${payments.reduce((sum: number, edp: any) => 
+                              sum + (typeof edp.amount_clp === 'number' ? edp.amount_clp : 0), 0
+                            ).toLocaleString('es-CL')}
+                          </td>
+                          <td className="p-3"></td>
+                          <td className="p-3"></td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No hay EDPs procesados
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="team">
