@@ -235,26 +235,3 @@ export const useContractSCurve = (contractCode: string) => {
     retry: 1,
   });
 };
-
-// Hook to fetch executive summary from contract_summaries
-export const useExecutiveSummary = (contractCode: string) => {
-  return useQuery({
-    queryKey: ['contract-executive-summary', contractCode],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('contract_summaries')
-        .select('raw_json')
-        .eq('contract_code', contractCode)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (error) throw error;
-      
-      // Extraer executive_summary del raw_json
-      const execSummary = (data?.raw_json as any)?.executive_summary;
-      return execSummary || null;
-    },
-    enabled: !!contractCode
-  });
-}

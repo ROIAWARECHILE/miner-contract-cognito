@@ -3,29 +3,8 @@ project_id = "wnkifmuhkhdjbswraini"
 [functions.process-document]
 verify_jwt = false
 
-[functions.reprocess-contract]
-verify_jwt = false
-
-[functions.verify-contract]
-verify_jwt = false
-
-[functions.contract-assistant]
-verify_jwt = false
-
-[functions.daily-contract-review]
-verify_jwt = false
-
-[functions.check-contract-summary]
-verify_jwt = false
-
-[functions.reanalyze-contract-summary]
-verify_jwt = false
-
-[functions.cleanup-failed-jobs]
-verify_jwt = false
-
 [functions.delete-contract]
 verify_jwt = false
 
-[functions.generate-executive-summary]
+[functions.cleanup-failed-jobs]
 verify_jwt = false
