@@ -18,12 +18,14 @@ interface DocumentUploaderProps {
   projectPrefix?: string;
   defaultType?: DocType;
   preselectedContractId?: string;
+  locked?: boolean;
 }
 
 export default function DocumentUploader({
   projectPrefix = 'dominga',
   defaultType = 'edp',
-  preselectedContractId
+  preselectedContractId,
+  locked = false
 }: DocumentUploaderProps) {
   const [docType, setDocType] = useState<DocType>(defaultType);
   const [contractId, setContractId] = useState<string>(preselectedContractId || '');
@@ -277,38 +279,40 @@ export default function DocumentUploader({
 
   return (
     <div className="p-4 border border-border rounded-lg bg-card/50 space-y-4">
-      {/* Doc Type Selector */}
-      <div>
-        <label className="block text-sm font-medium text-foreground mb-2">
-          Tipo de Documento
-        </label>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => setDocType('edp')}
-            variant={docType === 'edp' ? 'default' : 'outline'}
-            size="sm"
-            className="flex-1"
-          >
-            {LABEL.edp}
-          </Button>
-          <Button
-            onClick={() => setDocType('memorandum')}
-            variant={docType === 'memorandum' ? 'default' : 'outline'}
-            size="sm"
-            className="flex-1"
-          >
-            {LABEL.memorandum}
-          </Button>
-          <Button
-            onClick={() => setDocType('contract')}
-            variant={docType === 'contract' ? 'default' : 'outline'}
-            size="sm"
-            className="flex-1"
-          >
-            {LABEL.contract}
-          </Button>
+      {/* Doc Type Selector - hidden if locked */}
+      {!locked && (
+        <div>
+          <label className="block text-sm font-medium text-foreground mb-2">
+            Tipo de Documento
+          </label>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setDocType('edp')}
+              variant={docType === 'edp' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+            >
+              {LABEL.edp}
+            </Button>
+            <Button
+              onClick={() => setDocType('memorandum')}
+              variant={docType === 'memorandum' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+            >
+              {LABEL.memorandum}
+            </Button>
+            <Button
+              onClick={() => setDocType('contract')}
+              variant={docType === 'contract' ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1"
+            >
+              {LABEL.contract}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         {instructionText}

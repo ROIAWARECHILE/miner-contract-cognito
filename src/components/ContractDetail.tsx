@@ -21,6 +21,7 @@ import { useContract } from "@/hooks/useContract";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDeleteContract } from "@/hooks/useDeleteContract";
+import { ContractSummaryView } from "@/components/ContractSummaryView";
 
 interface ContractDetailProps {
   contractId: string;
@@ -422,6 +423,10 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             <TrendingUp className="w-4 h-4" />
             Progreso
           </TabsTrigger>
+          <TabsTrigger value="summary" className="gap-2">
+            <FileText className="w-4 h-4" />
+            Resumen
+          </TabsTrigger>
           <TabsTrigger value="documents" className="gap-2">
             <FileText className="w-4 h-4" />
             Documentos
@@ -439,6 +444,10 @@ export const ContractDetail = ({ contractId, onBack }: ContractDetailProps) => {
             Cronograma
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="summary" className="space-y-6">
+          <ContractSummaryView contractId={contractId} />
+        </TabsContent>
 
         <TabsContent value="progress" className="space-y-6">
           {/* S-Curve */}

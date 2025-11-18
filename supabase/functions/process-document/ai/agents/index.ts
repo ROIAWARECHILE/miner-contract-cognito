@@ -23,3 +23,5 @@ export type AgentType = keyof typeof agents;
 export function getAgentByType(type: string) {
   return agents[type as AgentType] || null;
 }
+
+export { contractAgent };
