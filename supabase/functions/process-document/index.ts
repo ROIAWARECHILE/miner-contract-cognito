@@ -2709,120 +2709,24 @@ serve(async (req) => {
       console.log(`[process-document] Document type ${document_type}/${autoDetectedType} does not require executive summary cards`);
     }
 
-    // Step 4.5: For contract documents, ensure contract exists
-    if (document_type === "contract" && !contract) {
-      const extractedCode = structured.contract_code || structured.code || `CONTRACT-${Date.now()}`;
-      const extractedTitle = structured.title || structured.name || "Contrato sin título";
+    // Step 4.5: For contract documents, delegate to specialized processor
+    if (document_type === "contract") {
+      const { processContractDocument } = await import("./processors/contract.ts");
       
-      console.log(`[process-document] Extracted contract code: ${extractedCode}`);
+      const result = await processContractDocument({
+        parsedJson,
+        storage_path,
+        document_type,
+        job_id: job.id,
+        contract_id: contract?.id,
+        supabase
+      });
       
-      // First, check if contract already exists
-      const { data: existingContract, error: existingError } = await supabase
-        .from("contracts")
-        .select("*")
-        .eq("code", extractedCode)
-        .single();
+      contract = result.contract;
+      const contractSummaryData = result.contract_summary.extracted_json;
       
-      if (existingContract) {
-        console.log(`[process-document] Contract already exists: ${extractedCode}, updating with latest data`);
-        
-        // ✅ ACTUALIZAR el contrato con los datos más recientes
-        const { data: updatedContract, error: updateError } = await supabase
-          .from("contracts")
-          .update({
-            title: extractedTitle,
-            metadata: structured,  // Actualizar metadata con datos frescos
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", existingContract.id)
-          .select()
-          .single();
-        
-        if (updateError) {
-          console.error(`[process-document] Failed to update contract:`, updateError);
-          // No lanzar error, continuar con el contrato existente
-          contract = existingContract;
-        } else {
-          console.log(`[process-document] Contract updated successfully: ${extractedCode}`);
-          contract = updatedContract;
-        }
-        
-        // Update job with contract_id
-        await supabase
-          .from("document_processing_jobs")
-          .update({ contract_id: contract.id })
-          .eq("id", job.id);
-      } else {
-        // Contract doesn't exist, create it
-        console.log(`[process-document] Creating new contract: ${extractedCode}`);
-        
-        const { data: newContract, error: contractCreateError } = await supabase
-          .from("contracts")
-          .insert({
-            code: extractedCode,
-            title: extractedTitle,
-            type: "service",
-            status: "draft",
-            metadata: structured
-          })
-          .select()
-          .single();
-        
-        if (contractCreateError) {
-          console.error(`[process-document] Failed to create contract:`, contractCreateError);
-          throw new Error(`Failed to create contract: ${contractCreateError.message}`);
-        }
-        
-        contract = newContract;
-        
-        // Update job with contract_id
-        await supabase
-          .from("document_processing_jobs")
-          .update({ contract_id: contract.id })
-          .eq("id", job.id);
-        
-        console.log(`[process-document] Contract created: ${contract.id}`);
-        
-        // If we have pending dashboard cards, merge them now
-        if (structured._dashboard_cards) {
-          console.log(`[process-document] 📋 Merging pending dashboard cards for newly created contract`);
-          try {
-            await mergeDashboardCards(
-              supabase,
-              contract.id,
-              contract.code,
-              structured._dashboard_cards,
-              filename
-            );
-            console.log(`[process-document] ✅ Dashboard cards merged (${structured._dashboard_cards_tokens || 0} tokens)`);
-          } catch (mergeError) {
-            console.error(`[process-document] ❌ Error merging pending cards:`, mergeError);
-            // Don't fail the whole process
-          }
-          // Clean up temporary fields
-          delete structured._dashboard_cards;
-          delete structured._dashboard_cards_tokens;
-        }
-      }
-      
-      // Also merge dashboard cards if contract existed but we have new cards
-      if (contract && structured._dashboard_cards) {
-        console.log(`[process-document] 📋 Merging dashboard cards for existing contract`);
-        try {
-          await mergeDashboardCards(
-            supabase,
-            contract.id,
-            contract.code,
-            structured._dashboard_cards,
-            filename
-          );
-          console.log(`[process-document] ✅ Dashboard cards merged (${structured._dashboard_cards_tokens || 0} tokens)`);
-        } catch (mergeError) {
-          console.error(`[process-document] ❌ Error merging cards:`, mergeError);
-        }
-        // Clean up temporary fields
-        delete structured._dashboard_cards;
-        delete structured._dashboard_cards_tokens;
+      if (result.review_required) {
+        console.warn(`[process-document] ⚠️ Contract requires manual review:`, result.warnings);
       }
     }
     

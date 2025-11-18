@@ -305,6 +305,85 @@ export type Database = {
         }
         Relationships: []
       }
+      contract_summaries: {
+        Row: {
+          confidence_score: number | null
+          contract_code: string
+          contract_id: string
+          created_at: string | null
+          extracted_by: string | null
+          extracted_json: Json
+          extraction_method: string | null
+          id: string
+          processing_time_ms: number | null
+          review_notes: string | null
+          review_status: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          source_document_id: string | null
+          updated_at: string | null
+          version: number | null
+        }
+        Insert: {
+          confidence_score?: number | null
+          contract_code: string
+          contract_id: string
+          created_at?: string | null
+          extracted_by?: string | null
+          extracted_json: Json
+          extraction_method?: string | null
+          id?: string
+          processing_time_ms?: number | null
+          review_notes?: string | null
+          review_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_document_id?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Update: {
+          confidence_score?: number | null
+          contract_code?: string
+          contract_id?: string
+          created_at?: string | null
+          extracted_by?: string | null
+          extracted_json?: Json
+          extraction_method?: string | null
+          id?: string
+          processing_time_ms?: number | null
+          review_notes?: string | null
+          review_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          source_document_id?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_summaries_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_summaries_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "view_contract_overview"
+            referencedColumns: ["contract_id"]
+          },
+          {
+            foreignKeyName: "contract_summaries_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contract_tasks: {
         Row: {
           budget_uf: number | null

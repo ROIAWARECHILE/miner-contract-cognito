@@ -4,6 +4,7 @@ import { DocumentProcessingMonitor } from '@/components/DocumentProcessingMonito
 import { Header } from '@/components/Header';
 import { useContracts } from '@/hooks/useContract';
 import { Card } from '@/components/ui/card';
+import { FileText } from 'lucide-react';
 
 export default function DocumentsPage() {
   const { data: contracts } = useContracts();
@@ -23,11 +24,9 @@ export default function DocumentsPage() {
           </p>
         </div>
 
-        {/* Global Contract Selector */}
-        <Card className="p-6 mb-6">
-          <label className="block mb-2 text-sm font-medium text-foreground">
-            Seleccionar Contrato
-          </label>
+        {/* Global Contract Selector - for EDPs and Memorandums */}
+        <Card className="p-6 mb-6 bg-muted/50">
+          <h2 className="font-semibold mb-2">Contrato Asociado (para EDPs y Memorándums)</h2>
           <select 
             className="w-full max-w-2xl rounded-lg border border-input bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
             value={selectedContractId} 
@@ -42,7 +41,7 @@ export default function DocumentsPage() {
           </select>
           {selectedContractId && (
             <p className="mt-2 text-xs text-muted-foreground">
-              ✓ Todos los documentos se asociarán a este contrato
+              ✓ EDPs y memorándums se asociarán a este contrato
             </p>
           )}
         </Card>
@@ -54,32 +53,61 @@ export default function DocumentsPage() {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-2 max-w-4xl mx-auto">
-          {/* Section 1: Payment States (EDPs) */}
-          <section className="space-y-4">
-            <div className="bg-card border border-border rounded-xl p-4">
-              <h2 className="font-semibold text-lg text-foreground mb-4">
+        {/* Three separate panels */}
+        <div className="grid gap-6 md:grid-cols-3">
+          
+          {/* Panel 1: EDPs */}
+          <Card className="p-6 border-2 hover:border-primary/50 transition-colors">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <FileText className="h-5 w-5" />
                 Estados de Pago (EDP)
               </h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Sube los PDFs de estados de pago mensuales
+              <p className="text-sm text-muted-foreground mt-1">
+                Sube los PDFs de estados de pago mensuales con detalle de tareas ejecutadas
               </p>
-              <DocumentUploader defaultType="edp" preselectedContractId={selectedContractId} />
             </div>
-          </section>
-
-          {/* Section 2: Memorandums */}
-          <section className="space-y-4">
-            <div className="bg-card border border-border rounded-xl p-4">
-              <h2 className="font-semibold text-lg text-foreground mb-4">
+            <DocumentUploader 
+              defaultType="edp" 
+              preselectedContractId={selectedContractId}
+              locked={true}
+            />
+          </Card>
+          
+          {/* Panel 2: Memorandums */}
+          <Card className="p-6 border-2 hover:border-primary/50 transition-colors">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <FileText className="h-5 w-5" />
                 Memorándums Técnicos
               </h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Sube memorándums de respaldo de EDPs con curvas S
+              <p className="text-sm text-muted-foreground mt-1">
+                Sube memorándums de respaldo con curvas S y resumen de actividades
               </p>
-              <DocumentUploader defaultType="memorandum" preselectedContractId={selectedContractId} />
             </div>
-          </section>
+            <DocumentUploader 
+              defaultType="memorandum" 
+              preselectedContractId={selectedContractId}
+              locked={true}
+            />
+          </Card>
+          
+          {/* Panel 3: Contracts */}
+          <Card className="p-6 border-2 border-amber-500/50 hover:border-amber-500 transition-colors">
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Contrato Principal
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Sube el documento maestro del contrato adjudicado para análisis con IA
+              </p>
+            </div>
+            <DocumentUploader 
+              defaultType="contract" 
+              locked={true}
+            />
+          </Card>
         </div>
 
         {/* Info Banner */}
