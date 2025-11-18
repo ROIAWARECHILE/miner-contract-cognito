@@ -6,11 +6,12 @@ import { toast } from 'sonner';
 import { useContracts } from '@/hooks/useContract';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
-type DocType = 'edp' | 'memorandum';
+type DocType = 'edp' | 'memorandum' | 'contract';
 
 const LABEL: Record<DocType,string> = {
   edp: 'Estado de Pago (EDP)',
-  memorandum: 'Memorándum / Respaldo EdP'
+  memorandum: 'Memorándum / Respaldo EdP',
+  contract: 'Contrato'
 };
 
 interface DocumentUploaderProps {
@@ -110,8 +111,8 @@ export default function DocumentUploader({
   }
 
   async function uploadAll() {
-    // EDPs and memorandums always require a contract
-    if (!contractId) {
+    // EDPs and memorandums require a contract; contract documents don't
+    if (docType !== 'contract' && !contractId) {
       setLog(l => ['❌ ERROR CRÍTICO: No hay contrato seleccionado', ...l]);
       toast.error('⚠️ Primero selecciona un contrato en el selector global', {
         duration: 5000,
@@ -127,9 +128,9 @@ export default function DocumentUploader({
       return;
     }
     
-    // Get contract code
-    const contract = contracts?.find(c => c.id === contractId);
-    const contract_code = contract?.code || '';
+    // Get contract code (not required for contract uploads)
+    const contract = docType === 'contract' ? null : contracts?.find(c => c.id === contractId);
+    const contract_code = contract?.code || (docType === 'contract' ? 'pending' : '');
     
     if (!contract_code) {
       toast.error('Error: Contrato no encontrado');
@@ -151,7 +152,8 @@ export default function DocumentUploader({
         // Construct storage path
         const folderMap: Record<DocType, string> = {
           edp: 'edp',
-          memorandum: 'memo'
+          memorandum: 'memo',
+          contract: 'contract'
         };
 
         const folder = folderMap[docType] || docType;
@@ -179,9 +181,13 @@ export default function DocumentUploader({
         const processPayload: any = {
           storage_path: path,
           document_type: docType,
-          contract_id: contractId,
           project_prefix: projectPrefix
         };
+
+        // Add contract_id for non-contract documents
+        if (docType !== 'contract' && contractId) {
+          processPayload.contract_id = contractId;
+        }
 
         // Add EDP number for memorandums
         if (docType === 'memorandum' && selectedEdpNumber) {
@@ -254,16 +260,19 @@ export default function DocumentUploader({
     });
   }
 
-  // Always require contract for EDPs and memorandums
+  // Contract uploads don't require contractId; EDPs and memorandums do
   const canUpload = (
-    contractId && 
     files.length > 0 && 
     !busy &&
-    (docType === 'edp' || (docType === 'memorandum' && selectedEdpNumber !== null))
+    (docType === 'contract' || 
+     (docType === 'edp' && contractId) || 
+     (docType === 'memorandum' && contractId && selectedEdpNumber !== null))
   );
 
   const instructionText = docType === 'memorandum' 
     ? 'Memorándums técnicos con curvas S y actividades realizadas'
+    : docType === 'contract'
+    ? 'Documentos de contrato principal para análisis con IA'
     : 'Estados de pago mensuales (EDPs) con detalles de avance por tarea';
 
   return (
@@ -289,6 +298,14 @@ export default function DocumentUploader({
             className="flex-1"
           >
             {LABEL.memorandum}
+          </Button>
+          <Button
+            onClick={() => setDocType('contract')}
+            variant={docType === 'contract' ? 'default' : 'outline'}
+            size="sm"
+            className="flex-1"
+          >
+            {LABEL.contract}
           </Button>
         </div>
       </div>
