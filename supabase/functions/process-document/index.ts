@@ -3015,7 +3015,7 @@ serve(async (req) => {
 
     // Step 5: Upsert into business tables (document_type specific)
     if (document_type === "edp" && contract && contract.id) {
-      // Upsert payment state with period_label
+      // Upsert payment state with period_label - all uploaded EDPs are automatically approved
       await supabase.from("payment_states").upsert({
         contract_id: contract.id,
         edp_number: structured.edp_number,
@@ -3025,8 +3025,8 @@ serve(async (req) => {
         amount_uf: structured.amount_uf,
         uf_rate: structured.uf_rate,
         amount_clp: structured.amount_clp,
-        status: structured.status || "submitted",
-        approval_date: structured.approval_date || null,
+        status: "approved",
+        approval_date: new Date().toISOString(),
         data: structured
       }, { onConflict: "contract_id,edp_number" });
 
