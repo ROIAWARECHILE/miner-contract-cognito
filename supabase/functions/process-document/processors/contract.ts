@@ -2,7 +2,8 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { contractAgent } from "../ai/agents/index.ts";
 
 export interface ContractProcessorInput {
-  parsedJson: any;
+  extractedData: any;  // JSON already extracted by OpenAI
+  parsedJson: any;     // For reference if needed
   storage_path: string;
   document_type: string;
   job_id: string;
@@ -20,18 +21,21 @@ export interface ContractProcessorOutput {
 export async function processContractDocument(
   input: ContractProcessorInput
 ): Promise<ContractProcessorOutput> {
-  const { parsedJson, storage_path, supabase, job_id } = input;
+  const { extractedData, storage_path, supabase, job_id } = input;
   const filename = storage_path.split("/").pop() || "unknown";
   
   console.log(`[contract-processor] 📄 Processing contract document: ${filename}`);
+  console.log(`[contract-processor] 🔍 Validating extracted data...`);
   
-  // Step 1: Extract text and validate with AI agent
-  const rawText = parsedJson.text || '';
-  const extractionResult = contractAgent.validate(rawText);
+  // Step 1: Validate already extracted data with schema
+  const extractionResult = contractAgent.validate(extractedData);
   
   if (!extractionResult) {
-    throw new Error("Contract extraction failed validation");
+    console.error('[contract-processor] ❌ Validation failed for extracted data:', extractedData);
+    throw new Error("Contract data does not match expected schema");
   }
+  
+  console.log(`[contract-processor] ✅ Data validation passed`);
   
   // Step 2: Validate critical fields
   const warnings: string[] = [];

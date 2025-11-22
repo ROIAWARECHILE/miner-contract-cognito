@@ -2714,6 +2714,7 @@ serve(async (req) => {
       const { processContractDocument } = await import("./processors/contract.ts");
       
       const result = await processContractDocument({
+        extractedData: structured,  // Pass already extracted JSON from OpenAI
         parsedJson,
         storage_path,
         document_type,
