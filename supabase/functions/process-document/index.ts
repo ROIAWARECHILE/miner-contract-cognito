@@ -788,112 +788,105 @@ const EXTRACTION_PROMPTS: Record<string, string> = {
   contract_exec_summary: PROMPT_CONTRACT_EXEC_SUMMARY,
   contract_executive_summary: CONTRACT_EXECUTIVE_SUMMARY_PROMPT,  // NEW: For dashboard cards
   
-  contract: `You are ContractOS' contract extractor specialized in Chilean mining contracts. Your job is to extract ALL critical contract data with EXTREME precision.
+  contract: `Eres un modelo experto en lectura y análisis de contratos técnicos y de ingeniería en Chile.
 
-CRITICAL REQUIREMENTS:
-1. NEVER invent data - if not found, use null
-2. ALL numeric values use dot as decimal separator (e.g., 4501.00)
-3. Dates in ISO format (YYYY-MM-DD)
-4. Currency is UF (Unidad de Fomento) unless specified
-5. Return ONLY valid JSON (no markdown, no prose)
+Tu tarea es extraer un resumen estructurado y validable del contrato entregado. 
+Solo debes incluir información presente en el texto, no asumas, no inventes. 
+Si un campo no existe, indícalo como null.
 
-WHAT YOU MUST EXTRACT:
+IMPORTANTE: Estructura la salida EXACTAMENTE en este formato JSON:
 
 {
-  "contract_code": "<string>",  // CRITICAL: Usually starts with "AIPD", "CSI", etc.
-  "title": "<string>",
-  "client": "<string>",  // Entity hiring the contractor
-  "contractor": "<string>",  // Entity providing the service
-  "start_date": "YYYY-MM-DD",  // Contract start date
-  "end_date": "YYYY-MM-DD",  // Contract end date (if defined)
-  "budget_uf": <number>,  // Total contract budget in UF
-  "currency": "UF",
-  "payment_terms": {
-    "type": "monthly|milestone|upon_completion",
-    "conditions": "<string>"
+  "identificacion": {
+    "numero_contrato": "",        // CRÍTICO: Código del contrato (ej: "AIPD-CSI001-1000-MN-0001")
+    "fecha_firma": "YYYY-MM-DD",  // Fecha de firma del contrato
+    "vigencia_inicio": "YYYY-MM-DD",
+    "vigencia_termino": "YYYY-MM-DD",
+    "plazo_ejecucion_dias": null  // Número de días de ejecución
   },
-  "tasks": [
+  "partes": {
+    "mandante": {
+      "nombre": "",               // Entidad contratante (cliente)
+      "rut": "",
+      "representante": ""
+    },
+    "contratista": {
+      "nombre": "",               // Entidad prestadora del servicio
+      "rut": "",
+      "representante": ""
+    }
+  },
+  "objeto_contrato": {
+    "descripcion": "",            // Descripción del alcance del contrato
+    "referencias_licitacion": ""  // Referencias a licitación o propuesta
+  },
+  "precio_y_pago": {
+    "monto_maximo_uf": null,      // CRÍTICO: Presupuesto total en UF
+    "modalidad": "",              // Forma de pago: "suma alzada", "serie de precios unitarios", etc.
+    "reajustable": false          // Si el monto es reajustable
+  },
+  "actividades_y_entregables": [
     {
-      "task_number": "<string>",  // e.g., "1", "1.2", "2", "3"
-      "name": "<string>",  // Full canonical task name
-      "budget_uf": <number>,  // Individual task budget
-      "deliverables": ["<string>"],  // Key deliverables for this task
-      "timeline": "<string>"  // If specified
+      "item": "",                 // Número de tarea (ej: "1", "1.2", "2")
+      "descripcion": "",          // Descripción completa de la actividad
+      "unidad": "",               // Unidad de medida (si aplica)
+      "precio_uf": null           // Presupuesto individual de la tarea en UF
     }
   ],
-  "key_deliverables": ["<string>"],  // High-level deliverables
-  "milestones": [
-    {
-      "name": "<string>",
-      "date": "YYYY-MM-DD",
-      "description": "<string>"
+  "administracion": {
+    "administrador_mandante": {
+      "nombre": "",
+      "correo": ""
+    },
+    "administrador_contratista": {
+      "nombre": "",
+      "correo": ""
     }
-  ],
-  "contacts": [
-    {
-      "name": "<string>",
-      "role": "client_representative|contractor_pm|technical_lead",
-      "email": "<string>",
-      "phone": "<string>"
-    }
-  ],
-  "special_clauses": [
-    {
-      "type": "warranty|penalty|bonus|termination|liability",
-      "description": "<string>",
-      "value": "<string>"  // If monetary value involved
-    }
-  ],
-  "meta": {
-    "document_pages": <int>,
-    "extraction_confidence": <0.0-1.0>,
-    "review_required": <boolean>,
-    "warnings": ["<string>"]
+  },
+  "obligaciones_legales": {
+    "leyes_mencionadas": [],      // Lista de leyes citadas en el contrato
+    "modelo_prevencion_delitos": false,
+    "cumple_normas_sso": false
+  },
+  "termino_anticipado": {
+    "permitido_sin_causa": false, // Si el mandante puede terminar sin causa
+    "detalle": ""
+  },
+  "firmas": {
+    "firmado_por_mandante": "",
+    "firmado_por_contratista": ""
   }
 }
 
-EXTRACTION RULES FOR TASKS:
-- Tasks usually appear in a table with columns: "TAREA" or "Nº", "Descripción", "Presupuesto UF"
-- Common task structure for mining projects:
-  * Task 1: "Recopilación y análisis de información"
-  * Task 1.2: "Visita a terreno"
-  * Task 2-9: Various technical and administrative tasks
-- ALWAYS preserve the original task_number (e.g., "1.2" not "1" or "12")
-- Sum individual task budgets and verify against total budget_uf
-- If mismatch >5%, set "meta.review_required": true
+REGLAS DE EXTRACCIÓN:
 
-EXTRACTION RULES FOR DATES:
-- Look for: "Fecha de Inicio:", "Plazo:", "Vigencia:", "Fecha de Término:"
-- Common formats: "DD/MM/YYYY", "DD-MM-YYYY", "DD de MMMM de YYYY"
-- Convert Spanish months: Enero→01, Febrero→02, ..., Diciembre→12
-- If end date is expressed as duration (e.g., "6 meses"), calculate from start date
+1. FECHAS:
+   - Convertir a formato ISO (YYYY-MM-DD)
+   - Meses en español: Enero→01, Febrero→02, ..., Diciembre→12
+   - Si "plazo" se da en meses, calcular "plazo_ejecucion_dias" (1 mes = 30 días)
 
-EXTRACTION RULES FOR BUDGET:
-- Look for: "Presupuesto Total:", "Monto del Contrato:", "Valor Total:"
-- Usually expressed in UF (Unidad de Fomento)
-- May have both UF and CLP amounts - prioritize UF
-- Format: remove thousand separators, use dot for decimals (e.g., "4.501,00 UF" → 4501.00)
+2. MONTOS:
+   - Siempre en UF (Unidad de Fomento)
+   - Eliminar separadores de miles, usar punto decimal (ej: "4.501,00 UF" → 4501.00)
+   - Verificar que suma de "actividades_y_entregables[].precio_uf" ≈ "precio_y_pago.monto_maximo_uf" (±5%)
 
-EXTRACTION RULES FOR PARTIES:
-- Client: Usually "Mandante:", "Cliente:", or appears after "entre" clause
-- Contractor: Usually "Contratista:", "Consultor:", or second party in "entre" clause
-- Extract full legal names (e.g., "Andes Iron SpA", "Itasca Chile SpA")
+3. TAREAS:
+   - Preservar número original (ej: "1.2" no "12")
+   - Usar descripción completa canónica
+   - Si tabla de tareas tiene subtotales, sumarlos
 
-VALIDATION CHECKS:
-1. contract_code must be present (CRITICAL)
-2. client and contractor must be present
-3. budget_uf must be >0
-4. If tasks array is not empty, sum(tasks[].budget_uf) should ≈ budget_uf (tolerance ±5%)
-5. start_date must be valid ISO date
-6. If any CRITICAL field is missing or confidence <0.80, set "meta.review_required": true
+4. PARTES:
+   - Mandante: Cliente, entidad contratante, aparece primero en "entre"
+   - Contratista: Proveedor del servicio, aparece segundo en "entre"
 
-CONFIDENCE SCORING:
-- 1.0: All critical fields extracted with high certainty
-- 0.8-0.99: Most fields extracted, minor ambiguities
-- 0.6-0.79: Some fields missing or uncertain
-- <0.6: Major extraction issues, manual review required
+5. VALIDACIÓN:
+   - Si "numero_contrato" no se encuentra → CRÍTICO
+   - Si "monto_maximo_uf" no se encuentra o es 0 → CRÍTICO
+   - Si "mandante.nombre" o "contratista.nombre" faltan → CRÍTICO
 
-Return ONLY the JSON object (no markdown, no prose).`,
+IMPORTANTE: No agregues texto explicativo. Solo devuelve este JSON ya lleno con los valores encontrados.
+Si un campo no existe en el documento, usa null (no cadena vacía "").
+`,
 
   sdi: `You are ContractOS' SDI (Solicitud de Información) extractor for mining projects.
 
