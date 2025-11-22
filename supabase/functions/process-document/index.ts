@@ -9,92 +9,95 @@ const corsHeaders = {
 
 // ===== SCHEMAS DE VALIDACIÓN - SOLO NÚCLEO ESTABLE =====
 
-// EDP extraction prompt with FULL validation and task detection
-const EDP_EXTRACTION_PROMPT = `You are ContractOS' EDP extractor specialized in Chilean mining payment statements.
-Your job is to extract structured data from "Estados de Pago" (EDPs) with EXTREME precision.
+// EDP extraction prompt - Optimized for role-based progress tables with CLP amounts
+const EDP_EXTRACTION_PROMPT = `Eres un analista experto en ingeniería y gestión de contratos mineros. Tu trabajo es revisar Estados de Pago (EDP) en formato PDF, y estructurar la información de forma precisa y normalizada para el sistema.
 
-CRITICAL REQUIREMENTS:
-1. Extract ALL tasks from the payment table, even if some have 0 spent
-2. NEVER invent data - if not found, use null
-3. ALL numeric values use dot as decimal separator (e.g., 209.81)
-4. Dates in ISO format (YYYY-MM-DD)
-5. Currency is UF (Unidad de Fomento) unless specified
-6. Return ONLY valid JSON (no markdown, no prose)
+A partir del contenido del documento, debes extraer lo siguiente:
 
-WHAT YOU MUST EXTRACT:
+1. **Identificación del EDP:**
+   - Número de EDP (ej: N° 1)
+   - Rango de fechas del periodo (ej: 02-Sep-2025 a 30-Sep-2025)
+   - Código del contrato (ej: AIPD-CSI002-1000-MN-0001)
+   - Nombre del cliente y proyecto
+
+2. **Tabla de Avance por Rol/Cargo:**
+   Extrae para cada fila:
+   - \`nombre_rol\`
+   - \`horas_presupuestadas\`
+   - \`valor_unitario_clp\`
+   - \`total_presupuestado_clp\`
+   - \`horas_actual\`
+   - \`total_actual_clp\`
+   - \`porcentaje_avance_actual\`
+   - \`horas_acumuladas\`
+   - \`total_acumulado_clp\`
+   - \`horas_remanente\`
+   - \`total_remanente_clp\`
+
+3. **Totales Generales:**
+   - \`total_horas_presupuestadas\`
+   - \`total_presupuesto_clp\`
+   - \`total_horas_actual\`
+   - \`total_actual_clp\`
+   - \`total_horas_acumuladas\`
+   - \`total_acumulado_clp\`
+   - \`total_horas_remanente\`
+   - \`total_remanente_clp\`
+
+4. **Observaciones o notas:**
+   - Notas tipo "las tarifas incluyen Utilidades y Gastos Generales"
+   - Firmas, representantes, etc.
+
+💡 IMPORTANTE:
+- Extrae los valores numéricos **como números reales** (sin puntos de miles).
+- Las columnas pueden variar en orden, prioriza el contenido.
+- Todos los montos deben estar en CLP (pesos chilenos) y las horas como números enteros.
+
+ESTRUCTURA JSON ESPERADA:
 
 {
   "edp_number": <int>,
-  "period": "<string>",  // MANDATORY - e.g., "Jul-25", "Ago-25", "Sep-25"
   "period_start": "YYYY-MM-DD",
   "period_end": "YYYY-MM-DD",
-  "amount_uf": <number>,  // Total payment amount this EDP
-  "uf_rate": <number>,    // UF exchange rate if present
-  "amount_clp": <number>, // CLP amount if present
-  "status": "approved|submitted|rejected|draft",
-  "approval_date": "YYYY-MM-DD",  // If approved
-  "tasks_executed": [
+  "contract_code": "<string>",
+  "client_name": "<string>",
+  "project_name": "<string>",
+  "roles": [
     {
-      "task_number": "<string>",  // e.g., "1", "1.2", "2", "3", "9"
-      "name": "<string>",
-      "budget_uf": <number>,      // Original task budget from contract
-      "spent_uf": <number>,       // Amount spent THIS EDP
-      "progress_pct": <int>       // Cumulative progress %
+      "nombre_rol": "<string>",
+      "horas_presupuestadas": <number>,
+      "valor_unitario_clp": <number>,
+      "total_presupuestado_clp": <number>,
+      "horas_actual": <number>,
+      "total_actual_clp": <number>,
+      "porcentaje_avance_actual": <number>,
+      "horas_acumuladas": <number>,
+      "total_acumulado_clp": <number>,
+      "horas_remanente": <number>,
+      "total_remanente_clp": <number>
     }
   ],
+  "totales": {
+    "total_horas_presupuestadas": <number>,
+    "total_presupuesto_clp": <number>,
+    "total_horas_actual": <number>,
+    "total_actual_clp": <number>,
+    "total_horas_acumuladas": <number>,
+    "total_acumulado_clp": <number>,
+    "total_horas_remanente": <number>,
+    "total_remanente_clp": <number>
+  },
+  "observaciones": "<string>",
+  "firmas": {
+    "representante_contratista": "<string>",
+    "representante_cliente": "<string>"
+  },
   "meta": {
     "extraction_confidence": <0.0-1.0>,
     "review_required": <boolean>,
-    "warnings": ["<string>"],
-    "missing_amount_uf": <number>  // If tasks sum doesn't match total
+    "warnings": ["<string>"]
   }
 }
-
-PERIOD EXTRACTION RULES (MANDATORY):
-- Look for: "Período:", "Periodo:", "MES:", "Month:", date range in header
-- Common formats: "Julio 2025", "Jul-25", "07/2025", "Período: 21/07/2025 - 31/07/2025"
-- Normalize to "MMM-YY" format (Jul-25, Ago-25, Sep-25, Oct-25, Nov-25, Dic-25)
-- Spanish months: Enero→Ene, Febrero→Feb, Marzo→Mar, Abril→Abr, Mayo→May, Junio→Jun, Julio→Jul, Agosto→Ago, Septiembre→Sep, Octubre→Oct, Noviembre→Nov, Diciembre→Dic
-- If period not found, set "meta.review_required": true and "meta.warnings": ["CRITICAL: Period not found"]
-
-EXTRACTION RULES FOR TASKS (CRITICAL):
-- Tasks appear in a table with columns typically: "TAREA" or "Nº", "Descripción", "Presupuesto UF", "Avance %", "UF Ejecutadas"
-- **EXTRACT ALL TASKS FROM THE TABLE** even if spent_uf is 0 or blank
-- Common task structure for this contract:
-  * Task 1: "Recopilación y análisis de información"
-  * Task 1.2: "Visita a terreno" (often without number in first column)
-  * Task 2: "Actualización del estudio hidrológico"
-  * Task 3: "Revisión experta del actual Modelo Hidrogeológico"
-  * Task 4: "Actualización y calibración del modelo hidrogeológico"
-  * Task 5: "Definición de condiciones desfavorables"
-  * Task 6: "Simulaciones predictivas"
-  * Task 7: "Asesoría técnica permanente"
-  * Task 8: "Reuniones y presentaciones"
-  * Task 9: "Costos de Administración y Operación"
-
-SPECIAL RULE for Task 1.2 (Visita a terreno):
-- May appear WITHOUT task number in first column
-- Keywords: "visita", "terreno", "campo", "site visit"
-- ALWAYS map to task_number "1.2"
-- If you see "Visita a terreno" but no number, use "1.2"
-
-SPECIAL RULE for Task 3 (Revisión experta):
-- Keywords: "revisión experta", "modelo hidrogeológico", "peer review"
-- ALWAYS map to task_number "3"
-
-NORMALIZATION RULES for task_number:
-- Preserve "1.2" exactly (never "1", never "12")
-- Remove ".0" suffix (e.g., "3.0" → "3", "9.0" → "9")
-- If blank but name matches known task, infer number
-
-CRITICAL VALIDATION:
-1. Sum all tasks[].spent_uf
-2. Compare with amount_uf
-3. If difference > 5%, set:
-   - "meta.review_required": true
-   - "meta.warnings": ["Tasks sum (XXX UF) differs from total (YYY UF) by ZZZ UF - some tasks may be missing"]
-   - "meta.missing_amount_uf": <difference>
-4. If Task 1 or Task 2 present but Task 1.2 missing, warn: "Task 1.2 (Visita a terreno) not detected"
 
 Return ONLY the JSON object (no markdown, no prose).`;
 
